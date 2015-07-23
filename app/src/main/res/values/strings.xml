@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Groovy Shell</string>
+    <string name="add_script">Add script</string>
+    <string name="available_scripts">Available scripts</string>
+</resources>

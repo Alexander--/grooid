@@ -1,0 +1,22 @@
+task wrapper (type:Wrapper) {
+    gradleVersion = '2.5'
+    distributionUrl = 'https://services.gradle.org/distributions/gradle-2.5-all.zip'
+}
+
+buildscript {
+    repositories {
+        jcenter()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:1.1.1'
+        classpath 'org.codehaus.groovy:gradle-groovy-android-plugin:0.3.6'
+        classpath 'com.neenbedankt.gradle.plugins:android-apt:1.6'
+        classpath 'com.jakewharton.sdkmanager:gradle-plugin:0.12.0'
+    }
+}
+
+allprojects {
+    repositories {
+        jcenter()
+    }
+}

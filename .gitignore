@@ -1,0 +1,45 @@
+# there is no policy for using these project files
+.settings
+.classpath
+.project
+.manager
+.scala_dependencies
+.cache
+.gradle
+
+# Idea is too noisy with constant file rewrites
+*.ipr
+*.iws
+*.iml
+.idea
+
+/local.properties
+/.idea/workspace.xml
+/.idea/libraries
+
+# build outputs
+/build
+target
+build
+out
+libs
+null
+tmp
+temp
+dist
+test-output
+build.log
+gen
+bin
+classes
+*.apk
+/*.log
+/logs/*
+jniLibs
+
+# misc
+Thumbs.db
+.DS_Store
+*~
+.directory
+.svn

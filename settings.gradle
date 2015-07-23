@@ -1,0 +1,3 @@
+include ':app', ':goro'
+
+project(':goro').projectDir = "$rootDir/goro/goro" as File

@@ -1,0 +1,3 @@
+[submodule "goro"]
+	path = goro
+	url = git@github.com:Alexander--/goro.git
