@@ -27,17 +27,7 @@
  * the library, but you are not obligated to do so.  If you do not wish to do
  * so, delete this exception statement from your version.
  */
-package net.sf.fakenames.app
+package net.sf.fakenames.db;
 
-import android.content.Context
-import groovy.transform.CompileStatic
-
-import java.util.concurrent.Executor
-
-@CompileStatic
-abstract class ContextAwareScript extends DelegatingScript {
-    @Delegate
-    GentleContextWrapper context
-
-    Executor executor
+public final class ScriptProvider extends ScriptProviderProto {
 }

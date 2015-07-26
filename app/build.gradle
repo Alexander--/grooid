@@ -36,7 +36,13 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_7
         targetCompatibility JavaVersion.VERSION_1_7
     }
+
+    packagingOptions {
+        exclude 'META-INF/services/javax.annotation.processing.Processor'
+    }
 }
+
+def aptOutput = "$projectDir/build/generated/source/apt/" as File
 
 androidGroovy {
     options {
@@ -45,6 +51,8 @@ androidGroovy {
 
         groovyOptions.configurationScript = file 'src/main/compiler/compiler-config.groovy'
         groovyOptions.javaAnnotationProcessing = true
+
+        options.compilerArgs = [ '-s', aptOutput, '-processorpath', "${configurations.apt.asPath}" ]
     }
 }
 
@@ -54,7 +62,23 @@ dependencies {
     compile 'com.google.android.tools:dx:1.7'
     compile 'org.codehaus.groovy:groovy:2.4.3:grooid'
     compile 'com.jakewharton:butterknife:7.0.1'
-    //compile 'com.stanfy.enroscar:enroscar-goro:2.0.0@aar'
-    //compile project(':goro')
-    compile files('libs/enroscar-goro-2.0.1-SNAPSHOT.jar')
+    compile 'com.hanhuy.android:viewserver:1.0.2'
+
+    compile project(':goro')
+    compile project(':db')
+
+    //compile files('libs/enroscar-goro-2.0.1-SNAPSHOT.jar')
+
+    //compile 'com.stanfy.enroscar:enroscar-async:1.0.0@jar'
+    //provided 'com.stanfy.enroscar:enroscar-async-compiler:1.0.0'
+}
+
+project.android.applicationVariants.all { variant ->
+    variant.addJavaSourceFoldersToModel(aptOutput)
+
+    def javaCompile = variant.hasProperty('javaCompiler') ? variant.javaCompiler : variant.javaCompile
+
+    javaCompile.doFirst {
+        aptOutput.mkdirs()
+    }
 }

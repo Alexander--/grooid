@@ -8,28 +8,22 @@
                 tools:context=".ScriptPicker"
                 tools:ignore="RtlHardcoded,UnusedAttribute">
 
-    <FrameLayout
-            android:id="@+id/appbar"
+    <android.support.v7.widget.Toolbar
+            style="@style/AppToolbar"
+            android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_alignParentTop="true"
-            android:background="@color/primary"
-            android:elevation="@dimen/ab_elevation">
-        <android.support.v7.widget.Toolbar
-                android:id="@+id/toolbar"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                tools:background="@color/primary"
-                android:elevation="0dp"
-                app:title="@string/available_scripts"
-                app:elevation="0dp"/>
-    </FrameLayout>
+            android:elevation="@dimen/ab_elevation"
+            app:elevation="0dp"
+            app:title="@string/available_scripts"/>
+
 
     <ListView
             android:id="@+id/list"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_below="@id/appbar"
+            android:layout_height="wrap_content"
+            android:layout_below="@id/toolbar"
             tools:listitem="@android:layout/simple_list_item_2"/>
 
     <ImageButton

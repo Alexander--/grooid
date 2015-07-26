@@ -9,7 +9,7 @@
             </item>
 
             <item>
-                <shape android:shape="oval">
+                <shape android:shape="oval" android:innerRadius="28dp">
                     <solid android:color="@color/accent"/>
                 </shape>
             </item>

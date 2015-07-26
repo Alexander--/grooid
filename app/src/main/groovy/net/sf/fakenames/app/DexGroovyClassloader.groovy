@@ -40,6 +40,7 @@ import com.android.dx.dex.code.PositionList;
 import com.android.dx.dex.file.DexFile;
 import dalvik.system.DexClassLoader
 import groovy.lang.GroovyClassLoader.ClassCollector;
+import groovy.lang.GroovyClassLoader.InnerLoader;
 import groovy.transform.CompileStatic
 import groovy.transform.PackageScope
 import org.codehaus.groovy.ast.ClassNode
@@ -57,8 +58,10 @@ import java.util.jar.Manifest;
 
 @CompileStatic  @PackageScope
 final class DexGroovyClassloader extends GroovyClassLoader {
-    static final Attributes.Name CREATED_BY = new Attributes.Name('Created-By')
-    static final Attributes.Name MANIFEST_VERSION = new Attributes.Name('Manifest-Version')
+    private static final String DEX_SUFFIX = '.dex'
+
+    private static final Attributes.Name CREATED_BY = new Attributes.Name('Created-By')
+    private static final Attributes.Name MANIFEST_VERSION = new Attributes.Name('Manifest-Version')
 
     final Context context
     final File unitFile
@@ -69,6 +72,8 @@ final class DexGroovyClassloader extends GroovyClassLoader {
 
     DexFile dexFile
     Set<String> classNames
+
+    private final List<dalvik.system.DexFile> dexClassPath = new ArrayList<>()
 
     public DexGroovyClassloader(Context context, File unitFile) {
         this(context, unitFile, new CompilerConfiguration())
@@ -107,11 +112,58 @@ final class DexGroovyClassloader extends GroovyClassLoader {
         cfOptions.statistics = false
 
         dexOptions.targetApiLevel = DexFormat.API_NO_EXTENDED_OPCODES
+
+        if (unitFile.parentFile.exists()) {
+            unitFile.parentFile.listFiles().each { File it ->
+                if (it.name.endsWith('.jar'))
+                    dexClassPath.add(dalvik.system.DexFile.loadDex(it.path, optimizedPathFor(it, unitFile.parentFile), 0))
+            }
+        }
+    }
+
+    // from dalvik/system/DexPathList.java
+    private static String optimizedPathFor(File path, File optimizedDirectory) {
+        /*
+         * Get the filename component of the path, and replace the
+         * suffix with ".dex" if that's not already the suffix.
+         *
+         * We don't want to use ".odex", because the build system uses
+         * that for files that are paired with resource-only jar
+         * files. If the VM can assume that there's no classes.dex in
+         * the matching jar, it doesn't need to open the jar to check
+         * for updated dependencies, providing a slight performance
+         * boost at startup. The use of ".dex" here matches the use on
+         * files in /data/dalvik-cache.
+         */
+        String fileName = path.getName();
+        if (!fileName.endsWith(DEX_SUFFIX)) {
+            int lastDot = fileName.lastIndexOf(".");
+            if (lastDot < 0) {
+                fileName += DEX_SUFFIX;
+            } else {
+                StringBuilder sb = new StringBuilder(lastDot + 4);
+                sb.append(fileName, 0, lastDot);
+                sb.append(DEX_SUFFIX);
+                fileName = sb.toString();
+            }
+        }
+        File result = new File(optimizedDirectory, fileName);
+        return result.getPath();
     }
 
     @Override
     Class loadClass(String name, boolean lookupScriptFiles, boolean preferClassOverScript, boolean resolve) throws ClassNotFoundException, CompilationFailedException {
-        return getClassCacheEntry(name) ?: parent.loadClass(name)
+        return getClassCacheEntry(name) ?: searchDexFiles(name) ?: parent.loadClass(name)
+    }
+
+    private Class searchDexFiles(String name) {
+        def found = null
+
+        dexClassPath.find {
+            found = it.loadClass(name, this)
+        }
+
+        return found
     }
 
     @Override
@@ -149,7 +201,7 @@ final class DexGroovyClassloader extends GroovyClassLoader {
     }
 
     public static DexClassLoader createParent(Context context, File unitFile, ClassLoader parent) {
-        return new DexClassLoader(unitFile as String, unitFile.parent,
+        return new DexClassLoader(unitFile.path, unitFile.parent,
                 context.applicationInfo.nativeLibraryDir, parent);
     }
 

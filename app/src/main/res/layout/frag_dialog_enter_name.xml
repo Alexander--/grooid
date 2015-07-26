@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              xmlns:tools="http://schemas.android.com/tools"
+              android:orientation="vertical"
+              android:layout_width="wrap_content"
+              android:layout_height="wrap_content"
+              android:id="@id/common_custom_dialog_root"
+              android:minWidth="@dimen/windowMinWidthMaterial"
+              android:layout_gravity="center_horizontal"
+              android:gravity="center"
+              android:layout_margin="@dimen/modest_screen_margin"
+              tools:context=".ScriptPicker">
+
+    <EditText
+            android:id="@+id/frag_dialog_enter_name_tv"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:hint="@string/choose_name"
+            android:inputType="text|textShortMessage|textNoSuggestions|textVisiblePassword"
+            android:minEms="17"
+            android:imeOptions="actionDone"
+            android:imeActionLabel="@string/save"
+            android:singleLine="true"
+            android:lines="1"
+            android:minWidth="@dimen/windowMinWidthMaterial"
+            android:maxLength="50"
+            android:layout_margin="@dimen/minor_screen_margin"
+            tools:text="@string/lorem"/>
+
+</LinearLayout>

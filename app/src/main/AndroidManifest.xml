@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools"
           package="net.sf.fakenames.app">
 
     <supports-screens
@@ -36,12 +36,6 @@
                 <!-- all content:// and file:// links with look-alike extensions -->
                 <data android:pathPattern=".*\.groovy"/>
                 <data android:pathPattern=".*\.groovy" android:mimeType="*/*"/>
-                <!--
-                <data android:scheme="http" android:pathPattern=".*\.groovy"/>
-                <data android:scheme="http" android:pathPattern=".*\.groovy" android:mimeType="*/*"/>
-                <data android:scheme="https" android:pathPattern=".*\.groovy"/>
-                <data android:scheme="https" android:pathPattern=".*\.groovy" android:mimeType="*/*"/>
-                -->
 
                 <!-- all well-typed content:// and file:// links -->
                 <data android:mimeType="text/groovy"/>
@@ -51,7 +45,16 @@
 
                 <category android:name="android.intent.category.DEFAULT" />
 
-                <!--
+            </intent-filter>
+
+            <!--
+            <intent-filter>
+
+                <data android:scheme="http" android:pathPattern=".*\.groovy"/>
+                <data android:scheme="http" android:pathPattern=".*\.groovy" android:mimeType="*/*"/>
+                <data android:scheme="https" android:pathPattern=".*\.groovy"/>
+                <data android:scheme="https" android:pathPattern=".*\.groovy" android:mimeType="*/*"/>
+
                 <data android:scheme="http" android:mimeType="text/groovy"/>
                 <data android:scheme="http" android:mimeType="script/groovy"/>
                 <data android:scheme="http" android:mimeType="application/groovy"/>
@@ -60,25 +63,24 @@
                 <data android:scheme="https" android:mimeType="script/groovy"/>
                 <data android:scheme="https" android:mimeType="application/groovy"/>
                 <data android:scheme="https" android:mimeType="application/x-groovy"/>
+
                 <category android:name="android.intent.category.BROWSABLE"/>
-                -->
 
             </intent-filter>
+            -->
 
-            <!-- special filter for content providers, unable to identify exact type correctly -->
+            <!-- special filter for content providers, unable to correctly identify exact type -->
             <intent-filter>
 
                 <action android:name="android.intent.action.SEND"/>
 
                 <data android:scheme="content" android:mimeType="text/*"/>
 
-                <!--
-                <category android:name="android.intent.category.BROWSABLE"/>
-                -->
-
             </intent-filter>
         </activity>
 
+        <!-- replace Goro implementation with our custom one -->
+        <service android:name="com.stanfy.enroscar.goro.GoroService" tools:node="remove"/>
         <service android:name=".ScriptBuilder" android:exported="false">
             <intent-filter>
                 <action android:name="com.stanfy.enroscar.goro.SERVICE" />

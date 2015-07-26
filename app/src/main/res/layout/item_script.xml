@@ -3,14 +3,18 @@
               xmlns:tools="http://schemas.android.com/tools"
               android:orientation="vertical"
               android:layout_width="match_parent"
-              android:layout_height="match_parent"
-              android:background="@color/icons">
+              android:layout_height="wrap_content"
+              android:background="@color/icons"
+              android:minHeight="?attr/listPreferredItemHeight"
+              android:gravity="center_vertical"
+              tools:ignore="RtlHardcoded">
     <TextView
-            style="@style/Base.TextAppearance.AppCompat.Body2"
+            style="@style/Base.TextAppearance.AppCompat.Medium"
+            android:id="@android:id/text1"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_margin="8dp"
-            android:gravity="center"
+            android:layout_margin="@dimen/modest_screen_margin"
+            android:gravity="left"
             android:textColor="@color/primary_dark"
             tools:text="example.groovy"/>
 </LinearLayout>

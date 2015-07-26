@@ -27,17 +27,38 @@
  * the library, but you are not obligated to do so.  If you do not wish to do
  * so, delete this exception statement from your version.
  */
-package net.sf.fakenames.app
+package net.sf.fakenames.db;
 
-import android.content.Context
-import groovy.transform.CompileStatic
+import com.annotatedsql.annotation.provider.Provider;
+import com.annotatedsql.annotation.provider.URI;
+import com.annotatedsql.annotation.sql.Autoincrement;
+import com.annotatedsql.annotation.sql.Column;
+import com.annotatedsql.annotation.sql.NotNull;
+import com.annotatedsql.annotation.sql.PrimaryKey;
+import com.annotatedsql.annotation.sql.Schema;
+import com.annotatedsql.annotation.sql.Table;
+import com.annotatedsql.annotation.sql.Unique;
 
-import java.util.concurrent.Executor
+@Schema(className = "ScriptSchema", dbName = "scripts.db", dbVersion = 1)
+@Provider(authority= ScriptContract.AUTHORITY, schemaClass="ScriptSchema", name="ScriptProviderProto")
+public interface ScriptContract {
+    String AUTHORITY = BuildConfig.APPLICATION_ID + ".provider";
 
-@CompileStatic
-abstract class ContextAwareScript extends DelegatingScript {
-    @Delegate
-    GentleContextWrapper context
+    @Table(Scripts.TABLE_NAME)
+    interface Scripts {
+        @URI(customMimeType = "text/groovy")
+        String TABLE_NAME = "scripts";
 
-    Executor executor
+        // our own unique identifier, used for directory naming; never shown to user
+        @NotNull @PrimaryKey @Autoincrement @Column(type = Column.Type.INTEGER)
+        String SCRIPT_ID = "_id";
+
+        // where the script was taken from
+        @NotNull @Unique @Column(type = Column.Type.TEXT)
+        String HUMAN_NAME = "script_uri";
+
+        // how the script identifies itself
+        @NotNull @Column(type = Column.Type.TEXT)
+        String CLASS_NAME = "class_name";
+    }
 }

@@ -30,6 +30,7 @@
 package net.sf.fakenames.app
 
 import android.app.Notification
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -39,18 +40,17 @@ import android.os.Parcel
 import android.os.Parcelable
 import android.os.PowerManager
 import android.support.annotation.NonNull
+import android.support.annotation.Nullable
 import android.support.v4.app.NotificationCompat
 import android.util.Log
 import android.widget.Toast
 import com.stanfy.enroscar.goro.GoroService
 import com.stanfy.enroscar.goro.ServiceContextAware
-import dalvik.system.BaseDexClassLoader
-import groovy.transform.BaseScript
 import groovy.transform.CompileStatic
+import net.sf.fakenames.db.ScriptContract
+import net.sf.fakenames.db.ScriptProvider
 import org.codehaus.groovy.control.CompilerConfiguration
-import org.codehaus.groovy.control.customizers.ASTTransformationCustomizer
 import org.codehaus.groovy.control.customizers.ImportCustomizer
-import org.codehaus.groovy.transform.BaseScriptASTTransformation
 
 import java.lang.Thread.UncaughtExceptionHandler
 import java.util.concurrent.Callable
@@ -184,10 +184,6 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
         defaultHandler.uncaughtException(thread, ex)
     }
 
-    public static Intent makeScriptIntent(Context context, Uri uri) {
-        taskIntent(context, new ParcelableTask(uri))
-    }
-
     private static class DelegatingThreadGroup extends ThreadGroup {
         UncaughtExceptionHandler delegate
 
@@ -237,18 +233,21 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
 
     @CompileStatic
     public static class ParcelableTask implements Callable<Void>, Parcelable, ServiceContextAware {
-        private final Uri uri;
+        private final Uri sourceUri
+        private final String targetScript
 
         private volatile Context base
 
-        public ParcelableTask(@NonNull Uri uri) {
-            this.uri = uri
+        public ParcelableTask(@NonNull String targetScript, @Nullable Uri sourceUri) {
+            this.sourceUri = sourceUri
+            this.targetScript = targetScript
         }
 
-        public ParcelableTask(@NonNull Context context, @NonNull Uri uri) {
+        public ParcelableTask(@NonNull Context context, @NonNull String targetScript, @Nullable Uri sourceUri) {
             this.base = context
 
-            this.uri = uri
+            this.sourceUri = sourceUri
+            this.targetScript = targetScript
         }
 
         @Override
@@ -258,8 +257,6 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
 
         @Override
         Void call() throws Exception {
-            def scriptId = uri.lastPathSegment
-
             def config = new CompilerConfiguration()
 
             config.scriptBaseClass = ContextAwareScript.class.name
@@ -270,28 +267,48 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
                             .addStarImports('android.content', 'android.app', 'android.os', 'net.sf.sandbox'),
                     new PackageCustomizer())
 
-            def scriptCodeFile = DexGroovyClassloader.makeUnitFile(base.applicationContext, scriptId)
-            scriptCodeFile.parentFile.listFiles().each { File it ->
-                it.delete()
+            def scriptCodeFile = DexGroovyClassloader.makeUnitFile(base.applicationContext, targetScript)
+            if (sourceUri) {
+                scriptCodeFile.parentFile.deleteDir()
+                scriptCodeFile.parentFile.mkdir()
             }
-
-            def groovyClassLoader = new DexGroovyClassloader(base.applicationContext, scriptCodeFile, config)
 
             def thread = Thread.currentThread()
             def oldContextCl = thread.contextClassLoader
+
+            def groovyClassLoader = new DexGroovyClassloader(base.applicationContext, scriptCodeFile, config)
             thread.contextClassLoader = groovyClassLoader
-            BaseDexClassLoader
 
             try {
-                def scriptClass = new BufferedReader(new InputStreamReader(base.contentResolver.openInputStream(uri))).withCloseable {
-                    def codeSource = new GroovyCodeSource(it, scriptId, 'UTF-8')
+                def scriptClass
 
-                    return groovyClassLoader.parseClass(codeSource)
+                if (sourceUri) {
+                    scriptClass = new BufferedReader(new InputStreamReader(base.contentResolver.openInputStream(sourceUri))).withCloseable {
+                        def codeSource = new GroovyCodeSource(it, targetScript, 'UTF-8')
+
+                        return groovyClassLoader.parseClass(codeSource)
+                    }
+
+                    def cv = new ContentValues(2)
+                    cv.put(ScriptContract.Scripts.HUMAN_NAME, targetScript)
+                    cv.put(ScriptContract.Scripts.CLASS_NAME, scriptClass.canonicalName)
+                    base.contentResolver.insert(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME), cv)
+                } else {
+                    def className = base.contentResolver.query(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME),
+                            [ScriptContract.Scripts.CLASS_NAME] as String[],
+                            "$ScriptContract.Scripts.HUMAN_NAME = ?",
+                            [ targetScript ] as String[],
+                            null).withCloseable {
+                        it.moveToNext()
+                        it.getString(0)
+                    }
+
+                    scriptClass = groovyClassLoader.loadClass(className)
                 }
 
                 def groovyScript = scriptClass.newInstance() as Script
 
-                def appContext = new GentleContextWrapper(base.applicationContext, groovyClassLoader, scriptId)
+                def appContext = new GentleContextWrapper(base.applicationContext, groovyClassLoader, targetScript)
 
                 groovyScript.binding = new Binding(context: appContext, executor: runner)
 
@@ -309,7 +326,7 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
                 try {
                     def powerMgr = appContext.getSystemService(POWER_SERVICE) as PowerManager
 
-                    lock = powerMgr.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$scriptId-partial-wakelock")
+                    lock = powerMgr.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$targetScript-partial-wakelock")
 
                     lock.acquire()
 
@@ -331,13 +348,14 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
 
         @Override
         void writeToParcel(Parcel dest, int flags) {
-            dest.writeParcelable(uri, 0)
+            dest.writeParcelable(sourceUri, 0)
+            dest.writeSerializable(targetScript)
         }
 
         public static final Parcelable.Creator CREATOR = new Parcelable.Creator<ParcelableTask>() {
             @Override
             ParcelableTask createFromParcel(Parcel source) {
-                return new ParcelableTask((Uri) source.readParcelable(ParcelableTask.classLoader))
+                return new ParcelableTask(source.readString(), source.<Uri> readParcelable(ParcelableTask.classLoader))
             }
 
             @Override
