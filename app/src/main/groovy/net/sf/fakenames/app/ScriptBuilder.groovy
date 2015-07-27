@@ -30,21 +30,32 @@
 package net.sf.fakenames.app
 
 import android.app.Notification
+import android.app.PendingIntent
 import android.content.ContentValues
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.os.Binder
+import android.os.Bundle
 import android.os.IBinder
 import android.os.Looper
 import android.os.Parcel
 import android.os.Parcelable
 import android.os.PowerManager
+import android.os.RemoteException
 import android.support.annotation.NonNull
 import android.support.annotation.Nullable
 import android.support.v4.app.NotificationCompat
 import android.util.Log
+import android.util.SparseArray
 import android.widget.Toast
+import com.stanfy.enroscar.goro.Goro
+import com.stanfy.enroscar.goro.GoroFuture
+import com.stanfy.enroscar.goro.GoroListener
 import com.stanfy.enroscar.goro.GoroService
+import com.stanfy.enroscar.goro.GoroService.GoroBinder
+import com.stanfy.enroscar.goro.ObservableFuture
 import com.stanfy.enroscar.goro.ServiceContextAware
 import groovy.transform.CompileStatic
 import net.sf.fakenames.db.ScriptContract
@@ -54,7 +65,9 @@ import org.codehaus.groovy.control.CompilerConfiguration
 import org.codehaus.groovy.control.customizers.ImportCustomizer
 
 import java.lang.Thread.UncaughtExceptionHandler
+import java.lang.ref.WeakReference
 import java.util.concurrent.Callable
+import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionHandler
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ThreadFactory
@@ -76,6 +89,8 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
     private boolean foreground
 
     private UncaughtExceptionHandler defaultHandler
+
+    private DelegateBinder binder
 
     @Override
     void onCreate() {
@@ -113,7 +128,7 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
 
     @Override
     IBinder onBind(Intent intent) {
-        IBinder binder = super.onBind(intent)
+        binder = new DelegateBinder(super.onBind(intent) as GoroBinder)
 
         bindingsHad++
 
@@ -159,9 +174,13 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
     }
 
     Notification createForegroundNf() {
+        def intent = PendingIntent.getActivity(applicationContext, R.id.req_nf, new Intent(this, ScriptPicker), 0)
+
         new NotificationCompat.Builder(this)
                 .setSmallIcon(R.drawable.ic_nf_foreground)
-                .setContentText("Running scripts...")
+                .setContentTitle('Groovy Shell is running')
+                .setContentText("Scripts in queue: $binder.taskCount...")
+                .setContentIntent(intent)
                 .setProgress(100, 0, true)
                 .build()
     }
@@ -197,6 +216,59 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
             delegate.uncaughtException(t, e)
 
             super.uncaughtException(t, e)
+        }
+    }
+
+    static class DelegateBinder extends IGoro.Stub implements GoroBinder, GoroListener {
+        private final GoroBinder delegate
+
+        private final AtomicInteger taskCount = new AtomicInteger()
+
+        DelegateBinder(GoroBinder delegate) {
+            this.delegate = delegate
+
+            delegate.goro().addTaskListener(this)
+        }
+
+        @Override
+        Goro goro() {
+            return delegate.goro()
+        }
+
+        @Override
+        int getTaskCount() {
+            return taskCount.get()
+        }
+
+        @Override
+        void onTaskSchedule(Callable<?> task, String queue) {
+            if (task instanceof ParcelableTask) {
+                taskCount.incrementAndGet()
+            }
+        }
+
+        @Override
+        void onTaskStart(Callable<?> task) {}
+
+        @Override
+        void onTaskFinish(Callable<?> task, Object result) {
+            if (task instanceof ParcelableTask) {
+                taskCount.decrementAndGet()
+            }
+        }
+
+        @Override
+        void onTaskCancel(Callable<?> task) {
+            if (task instanceof ParcelableTask) {
+                taskCount.decrementAndGet()
+            }
+        }
+
+        @Override
+        void onTaskError(Callable<?> task, Throwable error) {
+            if (task instanceof ParcelableTask) {
+                taskCount.decrementAndGet()
+            }
         }
     }
 

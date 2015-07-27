@@ -37,4 +37,5 @@ android {
 
 dependencies {
     compile 'net.sf.fdshare:library:0.2.5@aar'
+    compile 'com.android.support:support-v4:22.2.0'
 }

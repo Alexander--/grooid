@@ -36,5 +36,6 @@
             android:layout_marginBottom="16dp"
             android:background="@drawable/ic_fab"
             android:contentDescription="@string/add_script"
+            android:tint="@color/primary_dark"
             android:elevation="@dimen/ab_elevation" />
 </RelativeLayout>

@@ -31,15 +31,21 @@ package net.sf.fakenames.app
 
 import android.app.Activity
 import android.app.LoaderManager
+import android.content.ComponentName
+import android.content.Context
 import android.content.CursorLoader
 import android.content.Intent
 import android.content.Loader
+import android.content.ServiceConnection
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
+import android.os.IBinder
 import android.support.v7.app.AppCompatDelegate
 import android.support.v7.widget.Toolbar
 import android.widget.CursorAdapter
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.ListView
 import android.widget.SimpleCursorAdapter
 import android.widget.Toast
@@ -47,16 +53,18 @@ import butterknife.Bind
 import butterknife.ButterKnife
 import butterknife.OnClick
 import butterknife.OnItemClick
-import com.stanfy.enroscar.goro.BoundGoro
-import com.stanfy.enroscar.goro.FutureObserver
-import com.stanfy.enroscar.goro.Goro
+import com.stanfy.enroscar.goro.GoroListener
+import com.stanfy.enroscar.goro.GoroService
 import groovy.transform.CompileStatic
 import net.sf.fakenames.db.ScriptContract
 import net.sf.fakenames.db.ScriptProvider
+import net.sf.fakenames.dispatcher.MaterialProgressDrawable
 import net.sf.fakenames.dispatcher.Utils
 
+import java.util.concurrent.Callable
+
 @CompileStatic
-final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbacks {
+final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbacks, GoroListener, ServiceConnection {
     @Delegate
     private AppCompatDelegate delegate
 
@@ -66,15 +74,18 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     private Uri scriptUri
     private String newScriptName
 
-    private BoundGoro service
+    private int taskCount
+
+    private ScriptBuilder.DelegateBinder service
 
     @Bind(R.id.list)
     protected ListView list
 
+    @Bind(R.id.add_btn)
+    protected ImageButton button
+
     @Bind(R.id.toolbar)
     protected Toolbar toolbar
-
-    private final MainThreadExecutor executor = new MainThreadExecutor()
 
     @Override
     void onCreate(Bundle savedInstanceState) {
@@ -95,8 +106,6 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         ButterKnife.bind(this)
 
         supportActionBar = toolbar
-
-        service = Goro.bindWith(this)
 
         loaderManager.initLoader(R.id.ldr_act_picker_cursor, new Bundle(), this)
     }
@@ -237,33 +246,26 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     }
 
     void startScript(Uri sourceUri, String targetScript) {
-        def futureResult = service.schedule(new ScriptBuilder.ParcelableTask(this, targetScript, sourceUri))
+        service.goro().schedule(new ScriptBuilder.ParcelableTask(this, targetScript, sourceUri))
 
-        futureResult.subscribe(executor, new FutureObserver<Void>() {
-            @Override
-            void onSuccess(Void aVoid) {
-                Toast.makeText(ScriptPicker.this, "Teh success!", Toast.LENGTH_LONG).show()
-            }
-
-            @Override
-            void onError(Throwable throwable) {
-                Toast.makeText(ScriptPicker.this, "Teh failure: $throwable.message", Toast.LENGTH_LONG).show()
-
-                throwable.printStackTrace()
-            }
-        })
+        updateState()
     }
 
     @Override
     protected void onStart() {
         super.onStart()
 
-        service.bind()
+        GoroService.bind(this, this)
     }
 
     @Override
     protected void onStop() {
-        service.unbind()
+        if (service) {
+            service.goro().removeTaskListener(this)
+            service = null
+        }
+
+        GoroService.unbind(this, this)
 
         super.onStop()
     }
@@ -287,8 +289,8 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     void onLoadFinished(Loader loader, Object data) {
         switch (loader.id) {
             case R.id.ldr_act_picker_cursor:
-                list.adapter = new SimpleCursorAdapter(this, R.layout.item_script, data as Cursor,
-                        [ ScriptContract.Scripts.HUMAN_NAME ] as String[], [ android.R.id.text1 ] as int[], 0)
+                list.adapter = new ScriptAdapter(this, R.layout.item_script, data as Cursor,
+                        [ ScriptContract.Scripts.HUMAN_NAME ] as String[], [ android.R.id.text1 ] as int[])
 
                 break
 
@@ -307,4 +309,108 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         }
     }
 
+    void updateState() {
+        def adapter = (ScriptAdapter) list.adapter
+
+        if (taskCount) {
+            if (!button.getDrawable()) {
+                def newDrawable = new MaterialProgressDrawable(this, button)
+                newDrawable.backgroundColor = resources.getColor(android.R.color.transparent)
+                newDrawable.updateSizes(MaterialProgressDrawable.LARGE)
+
+                button.setImageDrawable(newDrawable)
+                //button.setBackground(newDrawable)
+
+                newDrawable.setAlpha(255);
+                newDrawable.start()
+
+                button.setEnabled(false)
+            }
+
+            if (adapter?.enabled) {
+                adapter.enabled = false
+            }
+        }
+        else {
+            button.setEnabled(true)
+            button.setImageDrawable(null)
+
+            if (adapter && !adapter.enabled) {
+                adapter.enabled = true
+            }
+        };
+    }
+
+    @Override
+    void onTaskSchedule(Callable<?> task, String queue) {
+        taskCount++
+
+        updateState()
+    }
+
+    @Override
+    void onTaskStart(Callable<?> task) {}
+
+    @Override
+    void onTaskFinish(Callable<?> task, Object result) {
+        taskCount--
+
+        updateState()
+
+        Toast.makeText(this, "Teh success!", Toast.LENGTH_LONG).show()
+    }
+
+    @Override
+    void onTaskCancel(Callable<?> task) {
+        taskCount--
+
+        updateState()
+    }
+
+    @Override
+    void onTaskError(Callable<?> task, Throwable error) {
+        taskCount--
+
+        updateState()
+
+        Toast.makeText(this, "Teh failure: $error.message", Toast.LENGTH_LONG).show()
+    }
+
+    public void onServiceConnected(ComponentName name, IBinder binder) {
+        service = binder as ScriptBuilder.DelegateBinder
+
+        taskCount = service.taskCount
+
+        service.goro().addTaskListener(this)
+
+        updateState()
+    }
+
+    public void onServiceDisconnected(ComponentName name) {
+        throw new AssertionError()
+    }
+
+    private static class ScriptAdapter extends SimpleCursorAdapter {
+        boolean enabled
+
+        ScriptAdapter(Context context, int layout, Cursor c, String[] from, int[] to) {
+            super(context, layout, c, from, to, 0)
+        }
+
+        @Override
+        boolean isEnabled(int position) {
+            return enabled
+        }
+
+        @Override
+        boolean areAllItemsEnabled() {
+            return enabled
+        }
+
+        void setEnabled(boolean enabled) {
+            this.enabled = enabled
+
+            notifyDataSetChanged()
+        }
+    }
 }

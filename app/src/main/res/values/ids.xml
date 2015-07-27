@@ -4,6 +4,7 @@
     <item name="req_pick_script" type="id"/>
     <item name="req_create_with_name" type="id"/>
     <item name="req_confirm_opening" type="id"/>
+    <item name="req_nf" type="id"/>
     <item name="ldr_act_picker_cursor" type="id"/>
     <item name="ldr_act_picker_new_script" type="id"/>
     <item name="common_custom_dialog_root" type="id"/>
