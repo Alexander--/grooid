@@ -1,0 +1,5 @@
+<resources>
+    <string name="unsupported_action">Action is not supported</string>
+    <string name="invalid_arguments">Unsupported arguments: requires a Groovy script file</string>
+    <string name="run_this_script">Run this script</string>
+</resources>

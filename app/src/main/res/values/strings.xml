@@ -6,6 +6,7 @@
     <string name="enter_valid_script_name">Enter valid script name</string>
     <string name="save">Save</string>
     <string name="save_script_as">Save script as</string>
+    <string name="do_you_want_to_open">Execute following script?</string>
     <string name="lorem">
         Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
     </string>

@@ -58,7 +58,6 @@ androidGroovy {
 
 dependencies {
     compile 'com.android.support:appcompat-v7:22.2.0'
-    compile 'net.sf.fdshare:library:0.2.5@aar'
     compile 'com.google.android.tools:dx:1.7'
     compile 'org.codehaus.groovy:groovy:2.4.3:grooid'
     compile 'com.jakewharton:butterknife:7.0.1'
@@ -66,6 +65,7 @@ dependencies {
 
     compile project(':goro')
     compile project(':db')
+    compile project(':dispatcher')
 
     //compile files('libs/enroscar-goro-2.0.1-SNAPSHOT.jar')
 

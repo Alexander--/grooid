@@ -32,14 +32,11 @@ package net.sf.fakenames.app
 import groovy.transform.CompileStatic
 import groovy.transform.PackageScope
 import org.codehaus.groovy.ast.ClassNode
-import org.codehaus.groovy.ast.ModuleNode
-import org.codehaus.groovy.ast.PackageNode
 import org.codehaus.groovy.classgen.GeneratorContext
 import org.codehaus.groovy.control.CompilationFailedException
 import org.codehaus.groovy.control.CompilePhase
 import org.codehaus.groovy.control.SourceUnit
 import org.codehaus.groovy.control.customizers.CompilationCustomizer
-import org.codehaus.groovy.transform.ASTTransformation
 
 @CompileStatic @PackageScope
 final class PackageCustomizer extends CompilationCustomizer {

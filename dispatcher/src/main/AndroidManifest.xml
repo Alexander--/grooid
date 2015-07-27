@@ -1,0 +1,131 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools"
+          package="net.sf.fakenames.dispatcher">
+
+    <application>
+        <activity android:name=".FastIntentDispatcher"
+                  android:noHistory="true"
+                  android:excludeFromRecents="true"
+                  android:resumeWhilePausing="true"
+                  android:theme="@android:style/Theme.NoDisplay"
+                  tools:ignore="UnusedAttribute">
+            <!-- anything with ".groovy" extension, regardless of of mime-type -->
+            <intent-filter android:label="@string/run_this_script">
+                <action android:name="android.intent.action.VIEW" />
+
+                <data android:scheme="android.resource"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+
+                <data android:host=""/>
+                <data android:host="*"/>
+
+                <data android:pathPattern="/.*/.*\\.groovy"/>
+                <data android:pathPattern=".*\\.groovy"/>
+                <data android:pathPattern=".*\\..*\\.groovy"/>
+                <data android:pathPattern=".*\\..*\\..*\\.groovy"/>
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.groovy"/>
+
+                <data android:mimeType="*/*"/>
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+            </intent-filter>
+
+            <!-- and the same for browsers (but non-default, to avoid annoying popups) -->
+            <intent-filter android:label="@string/run_this_script">
+                <action android:name="android.intent.action.VIEW" />
+
+                <data android:scheme="http"/>
+                <data android:scheme="https"/>
+
+                <data android:host="*"/>
+
+                <data android:pathPattern=".*\\.groovy"/>
+                <data android:pathPattern=".*\\..*\\.groovy"/>
+                <data android:pathPattern=".*\\..*\\..*\\.groovy"/>
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.groovy"/>
+
+                <data android:mimeType="*/*"/>
+
+                <category android:name="android.intent.category.BROWSABLE" />
+            </intent-filter>
+
+            <!-- a special filter for guys, living in the land without mime-types -->
+            <intent-filter android:label="@string/run_this_script">
+                <action android:name="android.intent.action.VIEW" />
+
+                <data android:scheme="android.resource"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+                <data android:scheme="http"/>
+                <data android:scheme="https"/>
+
+                <data android:host=""/>
+                <data android:host="*"/>
+
+                <data android:pathPattern="/.*/.*\\.groovy"/>
+                <data android:pathPattern=".*\\.groovy"/>
+                <data android:pathPattern=".*\\..*\\.groovy"/>
+                <data android:pathPattern=".*\\..*\\..*\\.groovy"/>
+                <data android:pathPattern=".*\\..*\\..*\\..*\\.groovy"/>
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+            </intent-filter>
+            -->
+
+            <!-- all well-typed content:// and file:// links -->
+            <intent-filter android:label="@string/run_this_script">
+                <action android:name="android.intent.action.VIEW" />
+
+                <data android:scheme="android.resource"/>
+                <data android:scheme="content"/>
+                <data android:scheme="file"/>
+
+                <data android:mimeType="text/groovy"/>
+                <data android:mimeType="script/groovy"/>
+                <data android:mimeType="application/groovy"/>
+                <data android:mimeType="application/x-groovy"/>
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+            </intent-filter>
+
+            <!-- the same for http:// and https:// -->
+            <intent-filter android:label="@string/run_this_script">
+                <action android:name="android.intent.action.VIEW" />
+
+                <data android:scheme="http"/>
+                <data android:scheme="https"/>
+
+                <data android:mimeType="text/groovy"/>
+                <data android:mimeType="script/groovy"/>
+                <data android:mimeType="application/groovy"/>
+                <data android:mimeType="application/x-groovy"/>
+
+                <category android:name="android.intent.category.BROWSABLE" />
+            </intent-filter>
+
+            <!-- special filters for content providers, unable to correctly identify exact type -->
+            <intent-filter android:label="@string/run_this_script">
+
+                <action android:name="android.intent.action.SEND"/>
+
+                <data android:mimeType="*/*"/>
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+            </intent-filter>
+
+            <intent-filter android:label="@string/run_this_script">
+
+                <action android:name="android.intent.action.SEND"/>
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

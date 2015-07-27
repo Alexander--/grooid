@@ -53,14 +53,17 @@ import com.stanfy.enroscar.goro.Goro
 import groovy.transform.CompileStatic
 import net.sf.fakenames.db.ScriptContract
 import net.sf.fakenames.db.ScriptProvider
+import net.sf.fakenames.dispatcher.Utils
 
 @CompileStatic
 final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbacks {
     @Delegate
     private AppCompatDelegate delegate
 
-    private Uri scriptUri
+    private boolean resumed
 
+    private boolean cautious
+    private Uri scriptUri
     private String newScriptName
 
     private BoundGoro service
@@ -83,6 +86,10 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
 
         super.onCreate(savedInstanceState)
 
+        if (!savedInstanceState) {
+            handleIntent(intent);
+        }
+
         contentView = R.layout.act_picker
 
         ButterKnife.bind(this)
@@ -92,6 +99,30 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         service = Goro.bindWith(this)
 
         loaderManager.initLoader(R.id.ldr_act_picker_cursor, new Bundle(), this)
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent)
+
+        if (handleIntent(intent)) {
+            cautious = intent.hasCategory(intent.CATEGORY_BROWSABLE)
+
+            if (cautious) {
+                ConfirmationDialog.create("$intent.data").show(fragmentManager, null)
+            }
+
+            if (resumed) processPendingActions()
+        }
+    }
+
+    private boolean handleIntent(Intent intent) {
+        if (intent?.action == Intent.ACTION_VIEW && Utils.isSupportedScheme(intent.data?.scheme)) {
+            scriptUri = intent.data
+            return true
+        }
+
+        return false
     }
 
     @OnClick(R.id.add_btn)
@@ -145,16 +176,43 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
                 newScriptName = name as String
 
                 break
+            case R.id.req_confirm_opening:
+                cautious = false
+
+                if (resultCode != RESULT_OK) {
+                    newScriptName = null
+                    scriptUri = null
+                    break
+                }
+
+                break
             default:
                 super.onActivityResult(requestCode, resultCode, returned)
         }
+
+        if (resumed) processPendingActions()
     }
 
     @Override
     protected void onResume() {
         super.onResume()
 
-        if (newScriptName) {
+        resumed = true
+
+        processPendingActions()
+    }
+
+    @Override
+    protected void onPause() {
+        resumed = false
+
+        super.onPause()
+    }
+
+    private void processPendingActions() {
+        if (cautious) {
+            // ok
+        } else if (newScriptName) {
             startScript(scriptUri, newScriptName)
 
             newScriptName = null

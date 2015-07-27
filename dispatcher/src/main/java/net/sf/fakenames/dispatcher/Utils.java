@@ -27,9 +27,11 @@
  * the library, but you are not obligated to do so.  If you do not wish to do
  * so, delete this exception statement from your version.
  */
-package net.sf.fakenames.app;
+package net.sf.fakenames.dispatcher;
 
+import android.content.ContentResolver;
 import android.content.Context;
+import android.content.res.AssetFileDescriptor;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
@@ -37,9 +39,12 @@ import android.provider.OpenableColumns;
 import android.text.TextUtils;
 import net.sf.fdshare.internal.FdCompat;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
+import java.net.URL;
 
-enum Utils { ;
+public enum Utils { ;
 
     public static boolean isValidScriptName(String s)
     {
@@ -66,6 +71,21 @@ enum Utils { ;
         return true;
     }
 
+    public static boolean isSupportedScheme(String scheme) {
+        if (TextUtils.isEmpty(scheme)) return false;
+
+        switch (scheme) {
+            case "content":
+            case "resource":
+            case "file":
+            case "http":
+            case "https":
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public static String deriveNameFromUri(Context context, Uri sourceUri) {
         String scheme = sourceUri.getScheme();
 
@@ -73,18 +93,6 @@ enum Utils { ;
             String nameCandidate;
 
             switch (scheme) {
-                case "file":
-                case "resource":
-                case "http":
-                    nameCandidate = sourceUri.getLastPathSegment();
-
-                    if (!TextUtils.isEmpty(nameCandidate)) {
-                        String[] strings = nameCandidate.replaceAll(" ", "_").split("\\.");
-
-                        if (isValidScriptName(strings[0]))
-                            return strings[0];
-                    }
-                    break;
                 case "content":
                     try (Cursor c = context.getContentResolver().query(sourceUri,
                             new String[] {OpenableColumns.DISPLAY_NAME}, null, null, null)) {
@@ -111,11 +119,35 @@ enum Utils { ;
                                 return strings[0];
                         }
                     } catch (RuntimeException | IOException ignore) {}
+                default:
+                    nameCandidate = sourceUri.getLastPathSegment();
 
+                    if (!TextUtils.isEmpty(nameCandidate)) {
+                        String[] strings = nameCandidate.replaceAll(" ", "_").split("\\.");
+
+                        if (isValidScriptName(strings[0]))
+                            return strings[0];
+                    }
                     break;
             }
         }
 
         return "";
+    }
+
+    public static InputStream openStreamForUri(Context context, Uri uri) throws IOException {
+        switch (uri.getScheme()) {
+            case ContentResolver.SCHEME_CONTENT:
+            case ContentResolver.SCHEME_ANDROID_RESOURCE:
+                try {
+                    return context.getContentResolver().openInputStream(uri);
+                } catch (RuntimeException ignore) {}
+            case "file":
+            case "http":
+            case "https":
+                return new URL(uri.toString()).openStream();
+        }
+
+        throw new IOException("Unable to open " + uri.toString());
     }
 }

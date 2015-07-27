@@ -35,114 +35,83 @@ import android.app.DialogFragment
 import android.app.PendingIntent
 import android.content.DialogInterface
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.support.v7.app.AlertDialog
-import android.view.inputmethod.EditorInfo
 import android.widget.TextView
 import butterknife.Bind
 import butterknife.ButterKnife
-import butterknife.OnEditorAction
-import groovy.transform.CompileStatic
-import net.sf.fakenames.dispatcher.Utils
 
-@CompileStatic
-final class NameRequestDialog extends DialogFragment implements DialogInterface.OnShowListener {
+final class ConfirmationDialog  extends DialogFragment implements DialogInterface.OnClickListener, DialogInterface.OnShowListener {
     private static final String ARG_URI = 'uri'
 
-    @Bind(R.id.frag_dialog_enter_name_tv)
-    protected TextView textInput
+    @Bind(R.id.frag_dialog_confirm_tv)
+    protected TextView scriptText
 
     private PendingIntent callback
-    private String proposedName
+    private String requestedScript
 
     @Deprecated
-    NameRequestDialog() {}
+    ConfirmationDialog() {}
 
     @Override
     void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState)
 
-        proposedName = arguments.getString(ARG_URI)
+        requestedScript = arguments.getString(ARG_URI)
+        //def nameParts = requestedScript.split("/")
+        //requestedScript = nameParts[nameParts.length - 1]
+
+        //if (requestedScript.length() > 7)
+        //    requestedScript = requestedScript.substring(0, 6) + '…'
     }
 
     @Override
     void onAttach(Activity activity) {
         super.onAttach(activity)
 
-        callback = activity.createPendingResult(R.id.req_create_with_name, new Intent(), PendingIntent.FLAG_UPDATE_CURRENT)
+        callback = activity.createPendingResult(R.id.req_confirm_opening, new Intent(), PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
     @Override
     Dialog onCreateDialog(Bundle savedInstanceState) {
         def dialog = new AlertDialog.Builder(activity)
-                .setTitle(R.string.save_script_as)
-                .setPositiveButton(android.R.string.ok, null)
-                .setNegativeButton(android.R.string.cancel, null)
-                .setView(R.layout.frag_dialog_enter_name)
+                .setTitle(getString(R.string.do_you_want_to_open, requestedScript))
+                .setPositiveButton(android.R.string.yes, this)
+                .setNegativeButton(android.R.string.cancel, this)
+                .setView(R.layout.frag_dialog_confirm)
                 .create()
 
         dialog.delegate.handleNativeActionModesEnabled = false
-
         dialog.onShowListener = this
 
         return dialog
     }
 
-    @OnEditorAction(R.id.frag_dialog_enter_name_tv)
-    boolean saveClicked(int actionId) {
-        if (actionId == EditorInfo.IME_ACTION_DONE || actionId == EditorInfo.IME_NULL) {
-            return submit()
-        }
-
-        return false
-    }
-
-    boolean submit() {
-        if (!Utils.isValidScriptName("$textInput.text")) {
-            textInput.error = getString(R.string.enter_valid_script_name)
-
-            return true
-        }
-
-        def result = new Intent()
-        result.data = Uri.parse("$textInput.text")
-
-        callback.send(activity, Activity.RESULT_OK, result)
-
-        dismissAllowingStateLoss()
-
-        return false
-    }
-
     @Override
-    void onCancel(DialogInterface dialog) {
-        callback.send(activity, Activity.RESULT_CANCELED, new Intent())
+    void onClick(DialogInterface dialog, int which) {
+        switch (which) {
+            case DialogInterface.BUTTON_POSITIVE:
+                callback.send(activity, Activity.RESULT_OK, new Intent())
+                break;
+            case DialogInterface.BUTTON_NEGATIVE:
+                callback.send(activity, Activity.RESULT_CANCELED, new Intent())
+                break;
+        }
     }
 
     @Override
     void onShow(DialogInterface dialogInterface) {
         ButterKnife.bind(this, dialog)
 
-        def okBtn = (dialog as AlertDialog).getButton(AlertDialog.BUTTON_POSITIVE)
-        def cancelBtn = (dialog as AlertDialog).getButton(AlertDialog.BUTTON_NEGATIVE)
-
-        cancelBtn.onClickListener = {
-            callback.send(activity, Activity.RESULT_CANCELED, new Intent())
-            dismiss()
-        }
-
-        okBtn.onClickListener = { submit() }
-
-        if (proposedName) textInput.text = proposedName
+        scriptText.text = requestedScript
     }
 
-    static DialogFragment create(String proposedName) {
-        def frag = new NameRequestDialog()
+    static DialogFragment create(String title) {
+        def frag = new ConfirmationDialog()
 
         def args = new Bundle()
 
-        args.putString(ARG_URI, proposedName)
+        args.putString(ARG_URI, title)
 
         frag.arguments = args
 

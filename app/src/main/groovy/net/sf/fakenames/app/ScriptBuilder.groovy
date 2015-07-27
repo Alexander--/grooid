@@ -49,6 +49,7 @@ import com.stanfy.enroscar.goro.ServiceContextAware
 import groovy.transform.CompileStatic
 import net.sf.fakenames.db.ScriptContract
 import net.sf.fakenames.db.ScriptProvider
+import net.sf.fakenames.dispatcher.Utils
 import org.codehaus.groovy.control.CompilerConfiguration
 import org.codehaus.groovy.control.customizers.ImportCustomizer
 
@@ -283,7 +284,7 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
                 def scriptClass
 
                 if (sourceUri) {
-                    scriptClass = new BufferedReader(new InputStreamReader(base.contentResolver.openInputStream(sourceUri))).withCloseable {
+                    scriptClass = new BufferedReader(new InputStreamReader(Utils.openStreamForUri(base, sourceUri))).withCloseable {
                         def codeSource = new GroovyCodeSource(it, targetScript, 'UTF-8')
 
                         return groovyClassLoader.parseClass(codeSource)
@@ -348,8 +349,8 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
 
         @Override
         void writeToParcel(Parcel dest, int flags) {
+            dest.writeString(targetScript)
             dest.writeParcelable(sourceUri, 0)
-            dest.writeSerializable(targetScript)
         }
 
         public static final Parcelable.Creator CREATOR = new Parcelable.Creator<ParcelableTask>() {
