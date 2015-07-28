@@ -22,9 +22,11 @@
     <ListView
             android:id="@+id/list"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="match_parent"
             android:layout_below="@id/toolbar"
-            tools:listitem="@android:layout/simple_list_item_2"/>
+            android:footerDividersEnabled="false"
+            tools:listitem="@layout/item_script"
+            tools:footer="@layout/footer"/>
 
     <ImageButton
             android:id="@+id/add_btn"

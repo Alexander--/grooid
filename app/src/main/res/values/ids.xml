@@ -8,4 +8,6 @@
     <item name="ldr_act_picker_cursor" type="id"/>
     <item name="ldr_act_picker_new_script" type="id"/>
     <item name="common_custom_dialog_root" type="id"/>
+    <item name="tag_script" type="id"/>
+    <item name="tag_origin" type="id"/>
 </resources>

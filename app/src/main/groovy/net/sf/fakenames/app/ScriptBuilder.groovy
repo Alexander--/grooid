@@ -362,9 +362,10 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
                         return groovyClassLoader.parseClass(codeSource)
                     }
 
-                    def cv = new ContentValues(2)
+                    def cv = new ContentValues(3)
                     cv.put(ScriptContract.Scripts.HUMAN_NAME, targetScript)
                     cv.put(ScriptContract.Scripts.CLASS_NAME, scriptClass.canonicalName)
+                    cv.put(ScriptContract.Scripts.SCRIPT_ORIGIN_URI, sourceUri as String)
                     base.contentResolver.insert(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME), cv)
                 } else {
                     def className = base.contentResolver.query(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME),

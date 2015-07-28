@@ -61,16 +61,11 @@ dependencies {
     compile 'com.google.android.tools:dx:1.7'
     compile 'org.codehaus.groovy:groovy:2.4.3:grooid'
     compile 'com.jakewharton:butterknife:7.0.1'
-    compile 'com.hanhuy.android:viewserver:1.0.2'
+    compile "com.daimajia.swipelayout:library:1.1.8@aar"
 
     compile project(':goro')
     compile project(':db')
     compile project(':dispatcher')
-
-    //compile files('libs/enroscar-goro-2.0.1-SNAPSHOT.jar')
-
-    //compile 'com.stanfy.enroscar:enroscar-async:1.0.0@jar'
-    //provided 'com.stanfy.enroscar:enroscar-async-compiler:1.0.0'
 }
 
 project.android.applicationVariants.all { variant ->

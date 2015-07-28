@@ -43,16 +43,18 @@ import android.os.Bundle
 import android.os.IBinder
 import android.support.v7.app.AppCompatDelegate
 import android.support.v7.widget.Toolbar
-import android.widget.CursorAdapter
+import android.view.View
+import android.view.ViewGroup
 import android.widget.ImageButton
-import android.widget.ImageView
 import android.widget.ListView
-import android.widget.SimpleCursorAdapter
 import android.widget.Toast
 import butterknife.Bind
 import butterknife.ButterKnife
 import butterknife.OnClick
 import butterknife.OnItemClick
+import butterknife.OnItemLongClick
+import com.daimajia.swipe.adapters.SimpleCursorSwipeAdapter
+import com.daimajia.swipe.util.Attributes
 import com.stanfy.enroscar.goro.GoroListener
 import com.stanfy.enroscar.goro.GoroService
 import groovy.transform.CompileStatic
@@ -67,6 +69,8 @@ import java.util.concurrent.Callable
 final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbacks, GoroListener, ServiceConnection {
     @Delegate
     private AppCompatDelegate delegate
+
+    private ScriptAdapter adapter
 
     private boolean resumed
 
@@ -105,6 +109,10 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
 
         ButterKnife.bind(this)
 
+        list.adapter = adapter = new ScriptAdapter(this, R.layout.item_script, null,
+                [ ScriptContract.Scripts.HUMAN_NAME ] as String[], [ android.R.id.text1 ] as int[])
+        list.addFooterView(layoutInflater.inflate(R.layout.footer, list, false), null, false)
+
         supportActionBar = toolbar
 
         loaderManager.initLoader(R.id.ldr_act_picker_cursor, new Bundle(), this)
@@ -136,21 +144,35 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
 
     @OnClick(R.id.add_btn)
     protected void importScript() {
-        def seed = new Intent(Intent.ACTION_GET_CONTENT)
+        def openSeed = new Intent(Intent.ACTION_GET_CONTENT)
                 .addCategory(Intent.CATEGORY_OPENABLE)
                 .addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
                 .setType('*/*')
 
-        def chooser = Intent.createChooser(seed, getString(R.string.add_script))
+        def chooser = Intent.createChooser(openSeed, getString(R.string.add_script))
 
         startActivityForResult(chooser, R.id.req_pick_script)
     }
 
     @OnItemClick(R.id.list)
     protected void itemClicked(int position) {
-        def cursor = list.adapter.getItem(position) as Cursor
-        def script = cursor.getString(cursor.getColumnIndex(ScriptContract.Scripts.HUMAN_NAME))
-        startScript(null, script)
+        if (adapter.openItems && !adapter.openItems[0] != -1) {
+            adapter.closeAllItems()
+        } else {
+            def cursor = adapter.getItem(position) as Cursor
+            def script = cursor.getString(cursor.getColumnIndex(ScriptContract.Scripts.HUMAN_NAME))
+            startScript(null, script)
+        }
+    }
+
+    @OnItemLongClick(R.id.list)
+    protected boolean itemLongClicked(int position) {
+        if (adapter.openItems && !adapter.openItems[0] != -1)
+            adapter.closeAllItems()
+        else
+            adapter.openItem(position)
+
+        return true
     }
 
     @Override
@@ -219,6 +241,8 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     }
 
     private void processPendingActions() {
+        if (!service) return
+
         if (cautious) {
             // ok
         } else if (newScriptName) {
@@ -262,7 +286,6 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     protected void onStop() {
         if (service) {
             service.goro().removeTaskListener(this)
-            service = null
         }
 
         GoroService.unbind(this, this)
@@ -275,7 +298,11 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         switch (id) {
             case R.id.ldr_act_picker_cursor:
                 return new CursorLoader(this, ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME),
-                        [ScriptContract.Scripts.SCRIPT_ID, ScriptContract.Scripts.HUMAN_NAME] as String[],
+                        [
+                                ScriptContract.Scripts.SCRIPT_ID,
+                                ScriptContract.Scripts.HUMAN_NAME,
+                                ScriptContract.Scripts.SCRIPT_ORIGIN_URI
+                        ] as String[],
                         null, null, null)
 
                 break
@@ -289,8 +316,9 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     void onLoadFinished(Loader loader, Object data) {
         switch (loader.id) {
             case R.id.ldr_act_picker_cursor:
-                list.adapter = new ScriptAdapter(this, R.layout.item_script, data as Cursor,
-                        [ ScriptContract.Scripts.HUMAN_NAME ] as String[], [ android.R.id.text1 ] as int[])
+                adapter.swapCursor(data as Cursor)
+
+                updateState()
 
                 break
 
@@ -303,15 +331,13 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     void onLoaderReset(Loader loader) {
         switch (loader.id) {
             case R.id.ldr_act_picker_cursor:
-                (list.adapter as CursorAdapter).swapCursor(null)
+                adapter.swapCursor(null)
 
                 break
         }
     }
 
     void updateState() {
-        def adapter = (ScriptAdapter) list.adapter
-
         if (taskCount) {
             if (!button.getDrawable()) {
                 def newDrawable = new MaterialProgressDrawable(this, button)
@@ -319,7 +345,6 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
                 newDrawable.updateSizes(MaterialProgressDrawable.LARGE)
 
                 button.setImageDrawable(newDrawable)
-                //button.setBackground(newDrawable)
 
                 newDrawable.setAlpha(255);
                 newDrawable.start()
@@ -384,17 +409,60 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         service.goro().addTaskListener(this)
 
         updateState()
+
+        if (resumed) processPendingActions()
     }
 
     public void onServiceDisconnected(ComponentName name) {
         throw new AssertionError()
     }
 
-    private static class ScriptAdapter extends SimpleCursorAdapter {
+    private static class ScriptAdapter extends SimpleCursorSwipeAdapter {
         boolean enabled
 
-        ScriptAdapter(Context context, int layout, Cursor c, String[] from, int[] to) {
+        ScriptAdapter(ScriptPicker context, int layout, Cursor c, String[] from, int[] to) {
             super(context, layout, c, from, to, 0)
+        }
+
+        @Override
+        View newView(Context context, Cursor cursor, ViewGroup parent) {
+            def view = super.newView(context, cursor, parent)
+
+            def delBtn = view.findViewById(R.id.item_script_delete_img)
+            delBtn.onClickListener = { View v ->
+                def targetScript = view.getTag(R.id.tag_script) as String
+
+                def scriptCodeFile = DexGroovyClassloader.makeUnitFile(context, targetScript)
+                scriptCodeFile.parentFile.deleteDir()
+
+                def uri = ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME)
+                context.contentResolver.delete(uri, "$ScriptContract.Scripts.HUMAN_NAME = ?", [targetScript] as String[])
+            }
+            def editBtn = view.findViewById(R.id.item_script_edit_img)
+            editBtn.setOnClickListener { View v ->
+                def targetScript = view.getTag(R.id.tag_origin) as String
+
+                def Intent intent = new Intent(Intent.ACTION_EDIT)
+                intent.setDataAndType(Uri.parse(targetScript), 'text/plain')
+                context.startActivity(intent)
+            }
+
+            return view
+        }
+
+        @Override
+        Cursor swapCursor(Cursor c) {
+            closeAllItems()
+
+            return super.swapCursor(c)
+        }
+
+        @Override
+        void bindView(View view, Context context, Cursor cursor) {
+            super.bindView(view, context, cursor)
+
+            view.setTag(R.id.tag_script, cursor.getString(cursor.getColumnIndex(ScriptContract.Scripts.HUMAN_NAME)))
+            view.setTag(R.id.tag_origin, cursor.getString(cursor.getColumnIndex(ScriptContract.Scripts.SCRIPT_ORIGIN_URI)))
         }
 
         @Override
@@ -411,6 +479,16 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
             this.enabled = enabled
 
             notifyDataSetChanged()
+        }
+
+        @Override
+        int getSwipeLayoutResourceId(int i) {
+            return R.id.swipe_layout
+        }
+
+        @Override
+        void closeAllItems() {
+            super.closeAllExcept(null)
         }
     }
 }

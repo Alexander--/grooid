@@ -39,7 +39,7 @@ import com.annotatedsql.annotation.sql.Schema;
 import com.annotatedsql.annotation.sql.Table;
 import com.annotatedsql.annotation.sql.Unique;
 
-@Schema(className = "ScriptSchema", dbName = "scripts.db", dbVersion = 1)
+@Schema(className = "ScriptSchema", dbName = "scripts.db", dbVersion = 2)
 @Provider(authority= ScriptContract.AUTHORITY, schemaClass="ScriptSchema", name="ScriptProviderProto")
 public interface ScriptContract {
     String AUTHORITY = BuildConfig.APPLICATION_ID + ".provider";
@@ -49,13 +49,17 @@ public interface ScriptContract {
         @URI(customMimeType = "text/groovy")
         String TABLE_NAME = "scripts";
 
-        // our own unique identifier, used for directory naming; never shown to user
+        // our own unique identifier; never shown to user
         @NotNull @PrimaryKey @Autoincrement @Column(type = Column.Type.INTEGER)
         String SCRIPT_ID = "_id";
 
-        // where the script was taken from
+        // how the script was named by user
         @NotNull @Unique @Column(type = Column.Type.TEXT)
         String HUMAN_NAME = "script_uri";
+
+        // where the script was taken from
+        @NotNull @Column(type = Column.Type.TEXT)
+        String SCRIPT_ORIGIN_URI = "source_uri";
 
         // how the script identifies itself
         @NotNull @Column(type = Column.Type.TEXT)
