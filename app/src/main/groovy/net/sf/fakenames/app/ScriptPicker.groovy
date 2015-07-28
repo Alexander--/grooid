@@ -43,6 +43,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.support.v7.app.AppCompatDelegate
 import android.support.v7.widget.Toolbar
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
@@ -156,7 +157,7 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
 
     @OnItemClick(R.id.list)
     protected void itemClicked(int position) {
-        if (adapter.openItems && !adapter.openItems[0] != -1) {
+        if (adapter.openItems && adapter.openItems[0] != -1) {
             adapter.closeAllItems()
         } else {
             def cursor = adapter.getItem(position) as Cursor
@@ -167,12 +168,22 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
 
     @OnItemLongClick(R.id.list)
     protected boolean itemLongClicked(int position) {
-        if (adapter.openItems && !adapter.openItems[0] != -1)
+        if (adapter.openItems && adapter.openItems[0] != -1)
             adapter.closeAllItems()
         else
             adapter.openItem(position)
 
         return true
+    }
+
+    @Override
+    public boolean onTouchEvent(MotionEvent me){
+        if(me.getAction() == MotionEvent.ACTION_DOWN){
+            adapter.closeAllItems()
+
+            return true
+        }
+        return false
     }
 
     @Override
