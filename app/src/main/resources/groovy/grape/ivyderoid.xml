@@ -1,0 +1,27 @@
+<ivysettings>
+    <settings defaultResolver="downloadGrapes"/>
+    <!--
+    <typedef name="workaroundparser" classname="org.apache.ivy.plugins.parser.m2.BarebonePomParser"/>
+    <parsers>
+        <workaroundparser/>
+    </parsers>
+    -->
+    <resolvers>
+        <chain name="downloadGrapes"
+               returnFirst="true"
+               checkmodified="false">
+            <filesystem name="fs" validate="false" checkconsistency="false" m2compatible="false">
+                <ivy pattern="${android.ivy.home}/[organisation]/[module]/ivy-[revision].pom"/>
+                <artifact pattern="${android.ivy.home}/[organisation]/[module]/jars/[artifact]-[revision](-[classifier]).[ext]"/>
+            </filesystem>
+
+            <ibiblio name="jcenter" root="https://jcenter.bintray.com/"
+                     validate="false" m2compatible="true"/>
+
+
+            <ibiblio name="central" root="http://repo1.maven.org/maven2/"
+                     validate="false" m2compatible="true"/>
+        </chain>
+    </resolvers>
+    <caches useOrigin="true"/>
+</ivysettings>

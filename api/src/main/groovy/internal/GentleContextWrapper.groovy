@@ -27,7 +27,7 @@
  * the library, but you are not obligated to do so.  If you do not wish to do
  * so, delete this exception statement from your version.
  */
-package net.sf.fakenames.app;
+package internal;
 
 import android.content.Context;
 import android.content.ContextWrapper
@@ -37,13 +37,9 @@ import android.content.res.Resources
 import android.database.DatabaseErrorHandler
 import android.database.sqlite.SQLiteDatabase
 import android.os.Bundle
-import android.os.Looper
 import android.support.v4.content.ContextCompat
-import android.support.v4.os.EnvironmentCompat
-import android.test.RenamingDelegatingContext
 import android.util.Log
 import groovy.transform.CompileStatic
-import groovy.transform.PackageScope;
 
 /**
  * Relocates all file-related calls to $targetDir/sandbox/$uniqueId. Some hierarchy weirdness may happen, but that
@@ -55,7 +51,7 @@ import groovy.transform.PackageScope;
  *
  * Returns the script classloader from getClassLoader
  */
-@CompileStatic @PackageScope
+@CompileStatic
 final class GentleContextWrapper extends ContextWrapper {
     private static final ContextCompat cc = new ContextCompat();
 
@@ -63,13 +59,13 @@ final class GentleContextWrapper extends ContextWrapper {
 
     private static final PREFIX = 'sandbox'
 
-    private final ClassLoader classLoader
+    private final ClassLoader clazzLoader
     private final String uniqueId
 
-    GentleContextWrapper(Context base, ClassLoader classLoader, String uniqueId) {
+    GentleContextWrapper(Context base, ClassLoader clazzLoader, String uniqueId) {
         super(base.applicationContext)
 
-        this.classLoader = classLoader
+        this.clazzLoader = clazzLoader
         this.uniqueId = uniqueId
 
         createDirLocked(filesDir)
@@ -78,32 +74,50 @@ final class GentleContextWrapper extends ContextWrapper {
     }
 
     @Override
-    @SuppressWarnings("GrDeprecatedAPIUsage")
     File getDir(String name, int mode) {
         def dir = "$filesDir/$name" as File
 
         if (!dir.exists() && !dir.mkdirs())
             Log.e TAG, "Failed to create a directory $dir"
 
-        if (mode & MODE_WORLD_READABLE)
-            dir.setReadable(true, false)
-
-        if (mode & MODE_WORLD_WRITEABLE)
-            dir.setWritable(true, false)
+        setFilePermissionsFromMode(dir, mode)
 
         return dir
     }
 
     @Override
     File getDatabasePath(String name) {
-        def dbPath = super.getDatabasePath(name)
+        return validateFilePath(name)
+    }
 
-        return dbPath ? "$dbPath.parentFile/$PREFIX/$uniqueId/$dbPath.name" as File : dbPath
+    @Override
+    String[] databaseList() {
+        return databasesDir.list() ?: new String[0]
     }
 
     @Override
     File getExternalFilesDir(String type) {
-        def externalCache = super.getExternalFilesDir(type)
+        def externalFiles = super.getExternalFilesDir(null)
+
+        if (externalFiles) {
+            externalFiles = "$externalFiles/$PREFIX/$uniqueId" as File
+
+            switch (type) {
+                case null:
+                    return externalFiles
+                default:
+                    def actualDir = super.getExternalFilesDir(type)
+                    if (actualDir)
+                        return new File(externalFiles, actualDir.name)
+            }
+        }
+
+        return null
+    }
+
+    @Override
+    File getExternalCacheDir() {
+        def externalCache = super.getExternalCacheDir()
 
         return externalCache ? "$externalCache/$PREFIX/$uniqueId" as File : externalCache
     }
@@ -157,7 +171,11 @@ final class GentleContextWrapper extends ContextWrapper {
 
         boolean append = mode & MODE_APPEND
 
-        return new FileOutputStream(f, append);
+        def stream = new FileOutputStream(f, append)
+
+        setFilePermissionsFromMode(f, mode)
+
+        return stream
     }
 
     @Override
@@ -187,11 +205,24 @@ final class GentleContextWrapper extends ContextWrapper {
 
     @Override
     SQLiteDatabase openOrCreateDatabase(String name, int mode, SQLiteDatabase.CursorFactory factory) {
-        throw new UnsupportedOperationException() // TODO
+        openOrCreateDatabase(name, mode, factory, null)
     }
     @Override
     public SQLiteDatabase openOrCreateDatabase(String name, int mode, SQLiteDatabase.CursorFactory factory, DatabaseErrorHandler errorHandler) {
-        throw new UnsupportedOperationException() // TODO
+        def f = validateFilePath(name)
+
+        f.parentFile.mkdirs()
+
+        int flags = SQLiteDatabase.CREATE_IF_NECESSARY;
+        if ((mode & MODE_ENABLE_WRITE_AHEAD_LOGGING) != 0) {
+            flags |= SQLiteDatabase.ENABLE_WRITE_AHEAD_LOGGING;
+        }
+
+        def db = SQLiteDatabase.openDatabase(f.path, factory, flags, errorHandler)
+
+        setFilePermissionsFromMode(f, mode)
+
+        return db
     }
 
     @Override
@@ -201,7 +232,7 @@ final class GentleContextWrapper extends ContextWrapper {
 
     @Override
     ClassLoader getClassLoader() {
-        return classLoader
+        return clazzLoader
     }
 
     @Override
@@ -217,6 +248,82 @@ final class GentleContextWrapper extends ContextWrapper {
     @Override
     Context getBaseContext() {
         return this
+    }
+
+    private File getOwnCodeCacheDir() {
+        DexGroovyClassloader.makeUnitFile(baseContext, uniqueId).parentFile
+    }
+
+    private File getDatabasesDir() {
+        filesDir ? "$filesDir/$PREFIX-databases/" as File : filesDir
+    }
+
+    private File validateFilePath(String name) {
+        File dir;
+        File f;
+
+        if (name.charAt(0) == File.separatorChar) {
+            String dirPath = name.substring(0, name.lastIndexOf('/'));
+            dir = new File(dirPath);
+            name = name.substring(name.lastIndexOf('/'));
+            f = new File(dir, name);
+        } else {
+            dir = databasesDir
+            f = makeFilename(dir, name);
+        }
+
+        return f;
+    }
+
+    @SuppressWarnings("GrDeprecatedAPIUsage")
+    private static setFilePermissionsFromMode(File file, int mode) {
+        if ((mode & MODE_WORLD_READABLE))
+            file.setReadable(true, false)
+
+        if ((mode & MODE_WORLD_WRITEABLE))
+            file.setWritable(true, false)
+    }
+
+    private static File makeFilename(File base, String name) {
+        if (name.indexOf('/') < 0) {
+            return new File(base, name);
+        }
+        throw new IllegalArgumentException("File $name contains a path separator");
+    }
+
+    static boolean cleanup(Context context, String uniqueId) {
+        try {
+            def prefsDir = "$context.filesDir/shared_prefs/" as File
+            if (prefsDir.exists()) {
+                def pattern = ~/$PREFIX-$uniqueId-/
+
+                def prefCleanup = prefsDir.listFiles().every { File it -> pattern.matcher(it.name) ? it.delete() : true }
+
+                if (!prefCleanup)
+                    Log.e TAG, "Failed to remove some shared preferences files for $uniqueId"
+            }
+        } catch (RuntimeException ignore) {}
+
+        GentleContextWrapper wrapper =  new GentleContextWrapper(context, GentleContextWrapper.class.classLoader, uniqueId)
+
+        wrapper.getExternalFilesDir(null)?.deleteDir()  ?: Log.e(TAG, "Failed to delete external files of $uniqueId")
+
+        undoCaches(wrapper) &&
+                wrapper.databasesDir.deleteDir() &&
+                wrapper.noBackupFilesDir.deleteDir() &&
+                wrapper.filesDir.deleteDir()
+    }
+
+    static boolean wipeCaches(Context context, String uniqueId) {
+        undoCaches(new GentleContextWrapper(context, GentleContextWrapper.class.classLoader, uniqueId))
+    }
+
+    private static boolean undoCaches(GentleContextWrapper wrapper) {
+        wrapper.externalCacheDir?.deleteDir() ?: Log.e(TAG, "Failed to delete external caches of $wrapper.uniqueId")
+
+        wrapper.ownCodeCacheDir.deleteDir() &&
+                wrapper.codeCacheDir.deleteDir() &&
+                wrapper.cacheDir.deleteDir()
     }
 
     private static def createDirLocked(File file) {

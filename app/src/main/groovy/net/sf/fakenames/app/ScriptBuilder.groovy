@@ -33,31 +33,29 @@ import android.app.Notification
 import android.app.PendingIntent
 import android.content.ContentValues
 import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
-import android.os.Binder
-import android.os.Bundle
 import android.os.IBinder
 import android.os.Looper
 import android.os.Parcel
 import android.os.Parcelable
 import android.os.PowerManager
-import android.os.RemoteException
+import android.os.Process
 import android.support.annotation.NonNull
 import android.support.annotation.Nullable
 import android.support.v4.app.NotificationCompat
 import android.util.Log
-import android.util.SparseArray
 import android.widget.Toast
 import com.stanfy.enroscar.goro.Goro
-import com.stanfy.enroscar.goro.GoroFuture
 import com.stanfy.enroscar.goro.GoroListener
 import com.stanfy.enroscar.goro.GoroService
 import com.stanfy.enroscar.goro.GoroService.GoroBinder
-import com.stanfy.enroscar.goro.ObservableFuture
 import com.stanfy.enroscar.goro.ServiceContextAware
+import groovy.grape.NastyGrapes
 import groovy.transform.CompileStatic
+import internal.GentleContextWrapper
+import net.sf.fakenames.api.ContextAwareScript
+import internal.DexGroovyClassloader
 import net.sf.fakenames.db.ScriptContract
 import net.sf.fakenames.db.ScriptProvider
 import net.sf.fakenames.dispatcher.Utils
@@ -65,9 +63,8 @@ import org.codehaus.groovy.control.CompilerConfiguration
 import org.codehaus.groovy.control.customizers.ImportCustomizer
 
 import java.lang.Thread.UncaughtExceptionHandler
-import java.lang.ref.WeakReference
+import java.nio.channels.Channels
 import java.util.concurrent.Callable
-import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionHandler
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ThreadFactory
@@ -77,6 +74,10 @@ import java.util.concurrent.atomic.AtomicInteger
 
 @CompileStatic
 final class ScriptBuilder extends GoroService implements UncaughtExceptionHandler {
+    static {
+        System.setProperty('groovy.grape.report.downloads', 'true')
+    }
+
     private static final String TAG = 'ScriptRunner'
 
     private static final ScriptRunner runner = new ScriptRunner()
@@ -95,6 +96,8 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
     @Override
     void onCreate() {
         super.onCreate()
+
+        NastyGrapes.init(this)
 
         runner.parentGroup.delegate = this
 
@@ -286,7 +289,7 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
 
         @Override
         Thread newThread(Runnable r) {
-            def thread = new Thread(parentGroup, r, "Groovy pool thread #${threadCount.incrementAndGet()}")
+            def thread = new Thread(parentGroup, r, "Groovy pool thread #${threadCount.incrementAndGet()}", 2000000)
             thread.priority = Thread.NORM_PRIORITY
             return thread
         }
@@ -330,6 +333,8 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
 
         @Override
         Void call() throws Exception {
+            def scriptSource = sourceUri
+
             def config = new CompilerConfiguration()
 
             config.scriptBaseClass = ContextAwareScript.class.name
@@ -337,78 +342,105 @@ final class ScriptBuilder extends GoroService implements UncaughtExceptionHandle
             config.addCompilationCustomizers(
                     new ImportCustomizer()
                             .addImports('android.util.Log', 'android.widget.Toast')
-                            .addStarImports('android.content', 'android.app', 'android.os', 'net.sf.sandbox'),
+                            .addStarImports('android.content', 'android.app', 'android.os', 'net.sf.fakenames.api'),
                     new PackageCustomizer())
+            // new ASTTransformationCustomizer(CompileStatic),
 
             def scriptCodeFile = DexGroovyClassloader.makeUnitFile(base.applicationContext, targetScript)
-            if (sourceUri) {
-                scriptCodeFile.parentFile.deleteDir()
-                scriptCodeFile.parentFile.mkdir()
+
+            if (scriptSource) {
+                def optimized = new File(DexGroovyClassloader.optimizedPathFor(scriptCodeFile, scriptCodeFile.parentFile))
+
+                optimized.delete()
+                scriptCodeFile.delete()
+                scriptCodeFile.parentFile.mkdirs()
+            } else if (!scriptCodeFile.exists()) {
+                def scriptSourceStr = base.contentResolver.query(
+                        ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME),
+                        [ScriptContract.Scripts.SCRIPT_ORIGIN_URI] as String[],
+                        "$ScriptContract.Scripts.HUMAN_NAME = ?", [targetScript] as String[],
+                        null).withCloseable {
+                    it.moveToNext()
+                    it.getString(0)
+                }
+                scriptSource = Uri.parse(scriptSourceStr)
             }
+
+            def groovyClassLoader = DexGroovyClassloader.getInstance(base.applicationContext, scriptCodeFile, config)
+            if (groovyClassLoader.closed)
+                throw new IllegalStateException("Restart the process to unload $targetScript!")
 
             def thread = Thread.currentThread()
             def oldContextCl = thread.contextClassLoader
 
-            def groovyClassLoader = new DexGroovyClassloader(base.applicationContext, scriptCodeFile, config)
             thread.contextClassLoader = groovyClassLoader
 
+            def lock = null
             try {
-                def scriptClass
+                def powerMgr = base.getSystemService(POWER_SERVICE) as PowerManager
 
-                if (sourceUri) {
-                    scriptClass = new BufferedReader(new InputStreamReader(Utils.openStreamForUri(base, sourceUri))).withCloseable {
-                        def codeSource = new GroovyCodeSource(it, targetScript, 'UTF-8')
+                lock = powerMgr.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$targetScript-partial-wakelock")
 
-                        return groovyClassLoader.parseClass(codeSource)
+                lock.acquire()
+
+                groovyClassLoader.withCloseable {
+                    def scriptClass
+
+                    if (scriptSource) {
+                        try {
+                            def channel = Channels.newChannel(Utils.openStreamForUri(base, scriptSource))
+
+                            scriptClass = Channels.newReader(channel, 'UTF-8').withCloseable {
+                                groovyClassLoader.parseClass(new GroovyCodeSource(it, targetScript, 'whatever'))
+                            }
+
+                            def cv = new ContentValues(3)
+                            cv.put(ScriptContract.Scripts.HUMAN_NAME, targetScript)
+                            cv.put(ScriptContract.Scripts.CLASS_NAME, scriptClass.canonicalName)
+                            cv.put(ScriptContract.Scripts.SCRIPT_ORIGIN_URI, sourceUri as String)
+                            base.contentResolver.insert(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME), cv)
+                        } catch (Throwable t) {
+                            GentleContextWrapper.wipeCaches(base, targetScript)
+
+                            throw t
+                        }
+                    } else {
+                        def className = base.contentResolver.query(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME),
+                                [ScriptContract.Scripts.CLASS_NAME] as String[],
+                                "$ScriptContract.Scripts.HUMAN_NAME = ?",
+                                [targetScript] as String[],
+                                null).withCloseable {
+                            it.moveToNext()
+                            it.getString(0)
+                        }
+
+                        scriptClass = groovyClassLoader.loadClass(className)
                     }
 
-                    def cv = new ContentValues(3)
-                    cv.put(ScriptContract.Scripts.HUMAN_NAME, targetScript)
-                    cv.put(ScriptContract.Scripts.CLASS_NAME, scriptClass.canonicalName)
-                    cv.put(ScriptContract.Scripts.SCRIPT_ORIGIN_URI, sourceUri as String)
-                    base.contentResolver.insert(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME), cv)
-                } else {
-                    def className = base.contentResolver.query(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME),
-                            [ScriptContract.Scripts.CLASS_NAME] as String[],
-                            "$ScriptContract.Scripts.HUMAN_NAME = ?",
-                            [ targetScript ] as String[],
-                            null).withCloseable {
-                        it.moveToNext()
-                        it.getString(0)
+                    def groovyScript = scriptClass.newInstance() as Script
+
+                    def appContext = new GentleContextWrapper(base.applicationContext, groovyClassLoader, targetScript)
+
+                    groovyScript.binding = new Binding(context: appContext, executor: runner)
+
+                    if (groovyScript instanceof ContextAwareScript) {
+                        def delegatingScript = groovyScript as ContextAwareScript
+
+                        if (!delegatingScript.delegate)
+                            delegatingScript.delegate = appContext
+
+                        delegatingScript.context = appContext
+                        delegatingScript.executor = runner
                     }
 
-                    scriptClass = groovyClassLoader.loadClass(className)
-                }
-
-                def groovyScript = scriptClass.newInstance() as Script
-
-                def appContext = new GentleContextWrapper(base.applicationContext, groovyClassLoader, targetScript)
-
-                groovyScript.binding = new Binding(context: appContext, executor: runner)
-
-                if (groovyScript instanceof ContextAwareScript) {
-                    def delegatingScript = groovyScript as ContextAwareScript
-
-                    if (!delegatingScript.delegate)
-                        delegatingScript.delegate = appContext
-
-                    delegatingScript.context = appContext
-                    delegatingScript.executor = runner
-                }
-
-                def lock = null
-                try {
-                    def powerMgr = appContext.getSystemService(POWER_SERVICE) as PowerManager
-
-                    lock = powerMgr.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$targetScript-partial-wakelock")
-
-                    lock.acquire()
+                    if (Thread.currentThread().interrupted)
+                        throw new InterruptedException()
 
                     groovyScript.run()
-                } finally {
-                    if (lock.held) lock.release()
                 }
             } finally {
+                if (lock.held) lock.release()
+
                 thread.contextClassLoader = oldContextCl
             }
 

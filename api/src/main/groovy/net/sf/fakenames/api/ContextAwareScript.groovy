@@ -27,15 +27,19 @@
  * the library, but you are not obligated to do so.  If you do not wish to do
  * so, delete this exception statement from your version.
  */
-package net.sf.fakenames.app
+package net.sf.fakenames.api
 
-import android.content.Context
 import groovy.transform.CompileStatic
+import internal.GentleContextWrapper
 
 import java.util.concurrent.Executor
 
 @CompileStatic
 abstract class ContextAwareScript extends DelegatingScript {
+    static final String ACTION_SCRIPT_CUSTOM = 'net.sf.fakenames.ACTION_CUSTOM'
+
+    static final String EXTRA_SCRIPT_ID = 'net.sf.fakenames.EXTRA_SSCRIPT_ID'
+
     @Delegate
     GentleContextWrapper context
 

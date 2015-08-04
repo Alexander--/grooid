@@ -26,9 +26,15 @@ android {
         versionName '1.0'
     }
     buildTypes {
+        debug {
+            minifyEnabled true
+            shrinkResources false
+            proguardFiles 'proguard-common.pro', 'proguard-obfuscate.pro'
+        }
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled true
+            shrinkResources false
+            proguardFiles 'proguard-common.pro', 'proguard-obfuscate.pro'
         }
     }
 
@@ -39,7 +45,14 @@ android {
 
     packagingOptions {
         exclude 'META-INF/services/javax.annotation.processing.Processor'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/MANIFEST.MF'
+        exclude 'META-INF/maven/com.fasterxml/aalto-xml/pom.properties'
+        exclude 'META-INF/maven/com.fasterxml/aalto-xml/pom.xml'
     }
+
+    dexOptions { javaMaxHeapSize '1536m' }
 }
 
 def aptOutput = "$projectDir/build/generated/source/apt/" as File
@@ -58,14 +71,17 @@ androidGroovy {
 
 dependencies {
     compile 'com.android.support:appcompat-v7:22.2.0'
-    compile 'com.google.android.tools:dx:1.7'
-    compile 'org.codehaus.groovy:groovy:2.4.3:grooid'
+    //compile 'com.google.android.tools:dx:1.7'
+    //compile 'com.crittercism.dexmaker:dexmaker-dx:1.4'
     compile 'com.jakewharton:butterknife:7.0.1'
-    compile "com.daimajia.swipelayout:library:1.1.8@aar"
+    compile 'com.daimajia.swipelayout:library:1.1.8@aar'
 
+    compile project(':ivy')
     compile project(':goro')
+
     compile project(':db')
     compile project(':dispatcher')
+    compile project(':api')
 }
 
 project.android.applicationVariants.all { variant ->

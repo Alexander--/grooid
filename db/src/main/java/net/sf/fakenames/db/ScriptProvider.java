@@ -29,5 +29,67 @@
  */
 package net.sf.fakenames.db;
 
+import android.content.Context;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteOpenHelper;
+import android.net.Uri;
+import android.support.v4.content.ContextCompat;
+import internal.GentleContextWrapper;
+import org.codehaus.groovy.runtime.ResourceGroovyMethods;
+
+import java.io.File;
+
 public final class ScriptProvider extends ScriptProviderProto {
+    @Override
+    protected void onPerformCleanupBeforeDeleted(Uri uri, String selection, String[] selectionArgs) {
+        try (Cursor data = query(uri, null, selection, selectionArgs, null)) {
+            while (data.moveToNext()) {
+                final String name = data.getString(data.getColumnIndex(ScriptContract.Scripts.HUMAN_NAME));
+
+                if (!GentleContextWrapper.cleanup(getContext(), name)) {
+                    throw new IllegalStateException("Failed to remove script data for " + name);
+                }
+            }
+        }
+    }
+}
+
+class ScriptHelper extends SQLiteOpenHelper {
+    private final Context context;
+
+    public ScriptHelper(Context context) {
+        super(context, ScriptSchema.DB_NAME, null, ScriptSchema.DB_VERSION);
+
+        this.context = context.getApplicationContext();
+    }
+
+    @Override
+    public void onCreate(SQLiteDatabase db) {
+        ScriptSchema.onCreate(db);
+    }
+
+    @Override
+    public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+        ScriptSchema.onDrop(db);
+        onCreate(db);
+        doChores();
+    }
+
+    @Override
+    public void onDowngrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+        ScriptSchema.onDrop(db);
+        onCreate(db);
+        doChores();
+    }
+
+    private void doChores() {
+        ResourceGroovyMethods.deleteDir(new ContextCompat().getCodeCacheDir(context));
+
+        ResourceGroovyMethods.deleteDir(new File(context.getCacheDir().getAbsolutePath() + "/sandbox/"));
+
+        final File externalCaches = context.getExternalCacheDir();
+        if (externalCaches != null)
+            ResourceGroovyMethods.deleteDir(new File(externalCaches, "/sandbox/"));
+    }
 }

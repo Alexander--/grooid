@@ -1,0 +1,10 @@
+* It does not look like dex files can be moved to external (FUSE/FAT) storage, because this somehow conflicts
+with use of memory-mapping by VM (e.g. the "file is in use" thing).
+* Any attempt to load class from jar/aar on the main thread can result in nice, hot, guaranteed ANR.
+* Loading from Ivy native repositories does not work, because Android SAX parser does not support namespace prefixes
+(which are extensively used in that format). "Replace the parser" is easier to be said than done.
+* Dalvik/ART do not support class unloading, which means that there won't be any classloader leaks, lol - the VM simply
+has to be killed/restarted each time new versions of classes are loaded. It also has to be killed routinely to avoid
+memory shortage because of previously loaded scripts.
+* Already compiled script/jar dex files will be loaded on next stratup (unless removed). That is - no recompilation,
+no staleness detection, compiled once, used until removed.

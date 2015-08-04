@@ -1,3 +1,5 @@
-include ':app', ':goro', ':db', ':dispatcher'
+include ':app', ':goro', ':db', ':dispatcher', ':ivy', ':api', ':dx', ':dex'
 
 project(':goro').projectDir = "$rootDir/goro/goro" as File
+project(':dx').projectDir = "$rootDir/dalvik/dx" as File
+project(':dex').projectDir = "$rootDir/libcore/dex" as File

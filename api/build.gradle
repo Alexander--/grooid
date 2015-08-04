@@ -1,0 +1,77 @@
+buildscript {
+    repositories {
+        jcenter()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:1.1.1'
+    }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'groovyx.grooid.groovy-android'
+
+repositories {
+    jcenter()
+}
+
+android {
+    compileSdkVersion 22
+    buildToolsVersion "22.0.1"
+
+    defaultConfig {
+        minSdkVersion 8
+        targetSdkVersion 22
+        versionCode 1
+        versionName "1.0"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_7
+        targetCompatibility JavaVersion.VERSION_1_7
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+androidGroovy {
+    options {
+        sourceCompatibility = '1.7'
+        targetCompatibility = '1.7'
+
+        groovyOptions.configurationScript = file 'src/main/compiler/compiler-config.groovy'
+    }
+}
+
+dependencies {
+    compile 'org.codehaus.groovy:groovy:2.4.3:grooid'
+    compile 'com.android.support:support-v4:22.2.0'
+    compile project(':dx')
+}
+
+project(':dex') {
+    apply plugin: 'java'
+
+    sourceCompatibility = '1.6'
+    targetCompatibility = '1.6'
+}
+
+project(':dx') {
+    apply plugin: 'java'
+
+    sourceSets {
+        main {
+            java.srcDirs = ['src/']
+        }
+    }
+
+    sourceCompatibility = '1.6'
+    targetCompatibility = '1.6'
+
+    dependencies {
+        compile project(':dex')
+    }
+}

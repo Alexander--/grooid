@@ -11,6 +11,7 @@ apply plugin: 'com.neenbedankt.android-apt'
 
 repositories {
     jcenter()
+    mavenCentral()
 }
 
 android {
@@ -18,20 +19,36 @@ android {
     buildToolsVersion "22.0.1"
 
     defaultConfig {
-        minSdkVersion 8
+        minSdkVersion 19
         targetSdkVersion 22
         versionCode 1
         versionName "1.0"
     }
     buildTypes {
+        debug {
+            minifyEnabled false
+            shrinkResources false
+            //proguardFiles 'proguard-common.pro', 'proguard-obfuscate.pro'
+        }
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            shrinkResources false
+            //proguardFiles 'proguard-common.pro', 'proguard-obfuscate.pro'
         }
+    }
+
+    packagingOptions {
+        exclude 'META-INF/services/javax.annotation.processing.Processor'
+        exclude 'META-INF/LICENSE'
+        exclude 'META-INF/NOTICE'
+        exclude 'META-INF/MANIFEST.MF'
     }
 }
 
 dependencies {
+
     provided 'com.github.hamsterksu:android-annotatedsql-api:1.10.3'
     apt 'com.github.hamsterksu:android-annotatedsql-processor:1.10.3'
+
+    compile project(':api')
 }

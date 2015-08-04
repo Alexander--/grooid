@@ -1,3 +1,12 @@
 [submodule "goro"]
 	path = goro
 	url = git@github.com:Alexander--/goro.git
+[submodule "ivy"]
+	path = ivy
+	url = https://github.com/Alexander--/ant-ivy.git
+[submodule "dalvik"]
+	path = dalvik
+	url = https://github.com/Alexander--/platform_dalvik
+[submodule "libcore"]
+	path = libcore
+	url = https://github.com/Alexander--/android_libcore

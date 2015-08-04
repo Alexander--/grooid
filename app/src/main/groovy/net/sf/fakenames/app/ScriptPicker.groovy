@@ -31,7 +31,9 @@ package net.sf.fakenames.app
 
 import android.app.Activity
 import android.app.LoaderManager
+import android.content.AsyncQueryHandler
 import android.content.ComponentName
+import android.content.ContentResolver
 import android.content.Context
 import android.content.CursorLoader
 import android.content.Intent
@@ -40,7 +42,10 @@ import android.content.ServiceConnection
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.Message
 import android.support.v7.app.AppCompatDelegate
 import android.support.v7.widget.Toolbar
 import android.view.MotionEvent
@@ -55,14 +60,16 @@ import butterknife.OnClick
 import butterknife.OnItemClick
 import butterknife.OnItemLongClick
 import com.daimajia.swipe.adapters.SimpleCursorSwipeAdapter
-import com.daimajia.swipe.util.Attributes
 import com.stanfy.enroscar.goro.GoroListener
 import com.stanfy.enroscar.goro.GoroService
 import groovy.transform.CompileStatic
+import internal.DexGroovyClassloader
+import internal.SturdyQueryHandler
 import net.sf.fakenames.db.ScriptContract
 import net.sf.fakenames.db.ScriptProvider
 import net.sf.fakenames.dispatcher.MaterialProgressDrawable
 import net.sf.fakenames.dispatcher.Utils
+import org.codehaus.groovy.control.MultipleCompilationErrorsException
 
 import java.util.concurrent.Callable
 
@@ -82,6 +89,8 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     private int taskCount
 
     private ScriptBuilder.DelegateBinder service
+
+    private AsyncQueryHandler queryHandler
 
     @Bind(R.id.list)
     protected ListView list
@@ -109,6 +118,8 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         contentView = R.layout.act_picker
 
         ButterKnife.bind(this)
+
+        queryHandler = new SturdyQueryHandler(contentResolver);
 
         list.adapter = adapter = new ScriptAdapter(this, R.layout.item_script, null,
                 [ ScriptContract.Scripts.HUMAN_NAME ] as String[], [ android.R.id.text1 ] as int[])
@@ -409,6 +420,16 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
 
         updateState()
 
+        error.printStackTrace()
+
+        if (error instanceof MultipleCompilationErrorsException) {
+            def collector = (error as MultipleCompilationErrorsException).errorCollector
+
+            for (int i = 0; i < collector.errorCount; i++) {
+                collector.getException(i).printStackTrace()
+            }
+        }
+
         Toast.makeText(this, "Teh failure: $error.message", Toast.LENGTH_LONG).show()
     }
 
@@ -429,10 +450,14 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     }
 
     private static class ScriptAdapter extends SimpleCursorSwipeAdapter {
+        private AsyncQueryHandler queryHandler
+
         boolean enabled
 
         ScriptAdapter(ScriptPicker context, int layout, Cursor c, String[] from, int[] to) {
             super(context, layout, c, from, to, 0)
+
+            this.queryHandler = context.queryHandler
         }
 
         @Override
@@ -443,11 +468,8 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
             delBtn.onClickListener = { View v ->
                 def targetScript = view.getTag(R.id.tag_script) as String
 
-                def scriptCodeFile = DexGroovyClassloader.makeUnitFile(context, targetScript)
-                scriptCodeFile.parentFile.deleteDir()
-
                 def uri = ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME)
-                context.contentResolver.delete(uri, "$ScriptContract.Scripts.HUMAN_NAME = ?", [targetScript] as String[])
+                queryHandler.startDelete(0, null, uri, "$ScriptContract.Scripts.HUMAN_NAME = ?", [targetScript] as String[])
             }
             def editBtn = view.findViewById(R.id.item_script_edit_img)
             editBtn.setOnClickListener { View v ->

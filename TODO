@@ -1,2 +1,14 @@
-* filter Intents
+== Grant Check List 1 ==
 * check if Uri is editable
+* move stuff to separate processes
+* make scripts interruptible
+== Grant Check List 2 ==
+* Implement quick reloading of scripts
+* implement simple CUI
+* filter Intents
+== Far future ==
+* DexGroovyClassloader: implement defineClass
+* DexGroovyClassloader: keep track of DexFiles with low class count to even them out during next dexing streak
+* Tell Ivy devs, that their reflective Authenticator hack fails on Android
+* Tell Ivy devs, that filesystem resolver fails to retrive it's own stuff due to lack of URL support for empty protocol
+* Tell Groovy devs, that a.b.BlaBlaBla.class.classLoader must return something sensible, even if there is a getClassLoader() method

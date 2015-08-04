@@ -29,7 +29,9 @@
  */
 package net.sf.fakenames.db;
 
+import android.app.ActivityGroup;
 import com.annotatedsql.annotation.provider.Provider;
+import com.annotatedsql.annotation.provider.Trigger;
 import com.annotatedsql.annotation.provider.URI;
 import com.annotatedsql.annotation.sql.Autoincrement;
 import com.annotatedsql.annotation.sql.Column;
@@ -39,14 +41,15 @@ import com.annotatedsql.annotation.sql.Schema;
 import com.annotatedsql.annotation.sql.Table;
 import com.annotatedsql.annotation.sql.Unique;
 
-@Schema(className = "ScriptSchema", dbName = "scripts.db", dbVersion = 2)
-@Provider(authority= ScriptContract.AUTHORITY, schemaClass="ScriptSchema", name="ScriptProviderProto")
+@Schema(className = "ScriptSchema", dbName = "scripts.db", dbVersion = 3)
+@Provider(authority= ScriptContract.AUTHORITY, schemaClass="ScriptSchema", name="ScriptProviderProto", openHelperClass = "ScriptHelper")
 public interface ScriptContract {
     String AUTHORITY = BuildConfig.APPLICATION_ID + ".provider";
 
     @Table(Scripts.TABLE_NAME)
     interface Scripts {
         @URI(customMimeType = "text/groovy")
+        @Trigger(name = "performCleanup", type = Trigger.Type.DELETE, when = Trigger.When.BEFORE)
         String TABLE_NAME = "scripts";
 
         // our own unique identifier; never shown to user
