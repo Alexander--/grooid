@@ -35,7 +35,9 @@
 
         <!-- replace Goro implementation with our custom one -->
         <service android:name="com.stanfy.enroscar.goro.GoroService" tools:node="remove"/>
-        <service android:name=".ScriptBuilder" android:exported="false">
+        <service android:name="com.stanfy.enroscar.goro.ScriptBuilder"
+                 android:exported="false"
+                 android:process=":sandbox">
             <intent-filter>
                 <action android:name="com.stanfy.enroscar.goro.SERVICE" />
             </intent-filter>

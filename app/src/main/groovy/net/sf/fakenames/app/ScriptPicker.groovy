@@ -31,9 +31,9 @@ package net.sf.fakenames.app
 
 import android.app.Activity
 import android.app.LoaderManager
+import android.app.Service
 import android.content.AsyncQueryHandler
 import android.content.ComponentName
-import android.content.ContentResolver
 import android.content.Context
 import android.content.CursorLoader
 import android.content.Intent
@@ -42,10 +42,7 @@ import android.content.ServiceConnection
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
 import android.os.IBinder
-import android.os.Looper
-import android.os.Message
 import android.support.v7.app.AppCompatDelegate
 import android.support.v7.widget.Toolbar
 import android.view.MotionEvent
@@ -62,6 +59,8 @@ import butterknife.OnItemLongClick
 import com.daimajia.swipe.adapters.SimpleCursorSwipeAdapter
 import com.stanfy.enroscar.goro.GoroListener
 import com.stanfy.enroscar.goro.GoroService
+import com.stanfy.enroscar.goro.IPCGoro
+import com.stanfy.enroscar.goro.ScriptBuilder
 import groovy.transform.CompileStatic
 import internal.DexGroovyClassloader
 import internal.SturdyQueryHandler
@@ -88,7 +87,7 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
 
     private int taskCount
 
-    private ScriptBuilder.DelegateBinder service
+    private IPCGoro service
 
     private AsyncQueryHandler queryHandler
 
@@ -292,7 +291,10 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     }
 
     void startScript(Uri sourceUri, String targetScript) {
-        service.goro().schedule(new ScriptBuilder.ParcelableTask(this, targetScript, sourceUri))
+        def intent = GoroService.taskIntent(this, new ParcelableTask(this, targetScript, sourceUri))
+                .putExtra(GoroService.EXTRA_IGNORE_ERROR, true)
+
+        startService(intent)
 
         updateState()
     }
@@ -301,16 +303,16 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     protected void onStart() {
         super.onStart()
 
-        GoroService.bind(this, this)
+        ScriptBuilder.bind(this, this)
     }
 
     @Override
     protected void onStop() {
         if (service) {
-            service.goro().removeTaskListener(this)
+            service.removeTaskListener(this)
         }
 
-        GoroService.unbind(this, this)
+        unbindService(this)
 
         super.onStop()
     }
@@ -360,7 +362,14 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     }
 
     void updateState() {
-        if (taskCount) {
+        if (!service) {
+            button.setEnabled(false)
+            button.setImageDrawable(null)
+
+            if (adapter && adapter.enabled) {
+                adapter.enabled = false
+            }
+        } else if (taskCount) {
             if (!button.getDrawable()) {
                 def newDrawable = new MaterialProgressDrawable(this, button)
                 newDrawable.backgroundColor = resources.getColor(android.R.color.transparent)
@@ -434,19 +443,33 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     }
 
     public void onServiceConnected(ComponentName name, IBinder binder) {
-        service = binder as ScriptBuilder.DelegateBinder
+        service = IPCGoro.from(binder)
+
+        alreadyDisconnected = false
 
         taskCount = service.taskCount
 
-        service.goro().addTaskListener(this)
+        service.addTaskListener(this)
 
         updateState()
 
         if (resumed) processPendingActions()
     }
 
+    private boolean alreadyDisconnected
+
     public void onServiceDisconnected(ComponentName name) {
-        throw new AssertionError()
+        service = null
+        taskCount = 0
+
+        Toast.makeText(this, "The script process has unexpectedly stopped", Toast.LENGTH_LONG).show()
+
+        if (alreadyDisconnected)
+            throw new IllegalStateException("Failed to reconnect to the service")
+        else
+            alreadyDisconnected = true
+
+        updateState()
     }
 
     private static class ScriptAdapter extends SimpleCursorSwipeAdapter {

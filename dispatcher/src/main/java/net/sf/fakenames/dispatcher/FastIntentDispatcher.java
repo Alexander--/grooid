@@ -37,8 +37,6 @@ import android.os.Bundle;
 import android.widget.Toast;
 
 public final class FastIntentDispatcher extends Activity {
-    private static final ComponentName browsableAlias = new ComponentName("net.sf.fakenames.app", "net.sf.fakenames.AliasForBrowser");
-
     public static final int UNSUPPORTED_URI = RESULT_FIRST_USER;
 
     @Override

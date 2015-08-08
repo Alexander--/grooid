@@ -51,27 +51,3 @@ dependencies {
     compile 'com.android.support:support-v4:22.2.0'
     compile project(':dx')
 }
-
-project(':dex') {
-    apply plugin: 'java'
-
-    sourceCompatibility = '1.6'
-    targetCompatibility = '1.6'
-}
-
-project(':dx') {
-    apply plugin: 'java'
-
-    sourceSets {
-        main {
-            java.srcDirs = ['src/']
-        }
-    }
-
-    sourceCompatibility = '1.6'
-    targetCompatibility = '1.6'
-
-    dependencies {
-        compile project(':dex')
-    }
-}

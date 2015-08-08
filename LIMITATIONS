@@ -7,4 +7,7 @@ with use of memory-mapping by VM (e.g. the "file is in use" thing).
 has to be killed/restarted each time new versions of classes are loaded. It also has to be killed routinely to avoid
 memory shortage because of previously loaded scripts.
 * Already compiled script/jar dex files will be loaded on next stratup (unless removed). That is - no recompilation,
-no staleness detection, compiled once, used until removed.
+no staleness detection, compiled once - used until removed.
+* There does not seem to be reliable way of intercepting ALL exceptions from scripts, due to availability of extra threads.
+In practice setting UncaughtExceptionHandler on the main thread and script ThreadGroup is usually enought, but scripts, which
+overwrite those handlers as well as use custom thread groups may still cause the service to visibly crash.
