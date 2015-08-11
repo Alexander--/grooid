@@ -41,7 +41,7 @@ import com.annotatedsql.annotation.sql.Schema;
 import com.annotatedsql.annotation.sql.Table;
 import com.annotatedsql.annotation.sql.Unique;
 
-@Schema(className = "ScriptSchema", dbName = "scripts.db", dbVersion = 3)
+@Schema(className = "ScriptSchema", dbName = "scripts.db", dbVersion = 4)
 @Provider(authority= ScriptContract.AUTHORITY, schemaClass="ScriptSchema", name="ScriptProviderProto", openHelperClass = "ScriptHelper")
 public interface ScriptContract {
     String AUTHORITY = BuildConfig.APPLICATION_ID + ".provider";
@@ -65,7 +65,7 @@ public interface ScriptContract {
         String SCRIPT_ORIGIN_URI = "source_uri";
 
         // how the script identifies itself
-        @NotNull @Column(type = Column.Type.TEXT)
+        @Column(type = Column.Type.TEXT)
         String CLASS_NAME = "class_name";
     }
 }

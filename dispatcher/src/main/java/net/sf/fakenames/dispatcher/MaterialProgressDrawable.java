@@ -134,7 +134,7 @@ public class MaterialProgressDrawable extends Drawable implements Animatable {
         setupAnimators();
     }
 
-    private void setSizeParameters(double progressCircleWidth, double progressCircleHeight,
+    public void setSizeParameters(double progressCircleWidth, double progressCircleHeight,
                                    double centerRadius, double strokeWidth, float arrowWidth, float arrowHeight) {
         final Ring ring = mRing;
         final DisplayMetrics metrics = mResources.getDisplayMetrics();
@@ -220,13 +220,23 @@ public class MaterialProgressDrawable extends Drawable implements Animatable {
     }
 
     @Override
+    protected void onBoundsChange(Rect bounds) {
+        super.onBoundsChange(bounds);
+
+        mWidth = bounds.width();
+        mHeight = bounds.height();
+
+        invalidateSelf();
+    }
+
+    @Override
     public int getIntrinsicHeight() {
-        return (int) mHeight;
+        return mHeight > 0 ? (int) mHeight : super.getIntrinsicHeight();
     }
 
     @Override
     public int getIntrinsicWidth() {
-        return (int) mWidth;
+        return mWidth > 0 ? (int) mWidth : super.getIntrinsicWidth();
     }
 
     @Override

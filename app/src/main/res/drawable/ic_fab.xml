@@ -1,32 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item>
-        <selector>
-            <item android:state_pressed="true">
-                <shape android:shape="oval" android:innerRadius="28dp">
-                    <solid android:color="@color/accent_material_light"/>
-                </shape>
-            </item>
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+       android:insetBottom="2dp"
+       android:insetLeft="2dp"
+       android:insetRight="2dp"
+       android:insetTop="2dp">
+    <layer-list>
+        <item>
+            <selector>
+                <item android:state_pressed="true">
+                    <shape android:shape="oval">
+                        <solid android:color="@color/accent_material_dark"/>
+                    </shape>
+                </item>
 
-            <item android:state_enabled="false">
-                <shape android:shape="oval" android:innerRadius="28dp">
-                    <solid android:color="@color/accent_material_dark"/>
-                </shape>
-            </item>
+                <item>
+                    <shape android:shape="oval">
+                        <solid android:color="@color/accent"/>
+                    </shape>
+                </item>
+            </selector>
+        </item>
 
-            <item>
-                <shape android:shape="oval" android:innerRadius="28dp">
-                    <solid android:color="@color/accent"/>
-                </shape>
-            </item>
-        </selector>
-    </item>
-
-    <item
-            android:left="8dp"
-            android:right="8dp"
-            android:top="8dp"
-            android:bottom="8dp">
-        <bitmap android:src="@drawable/ic_add_white_24dp"/>
-    </item>
-</layer-list>
+        <item android:drawable="@drawable/ic_add_white_24dp"
+              android:left="11dp"
+              android:right="11dp"
+              android:top="11dp"
+              android:bottom="11dp"/>
+    </layer-list>
+</inset>

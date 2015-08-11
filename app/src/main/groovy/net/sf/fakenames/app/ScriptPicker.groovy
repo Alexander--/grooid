@@ -31,7 +31,6 @@ package net.sf.fakenames.app
 
 import android.app.Activity
 import android.app.LoaderManager
-import android.app.Service
 import android.content.AsyncQueryHandler
 import android.content.ComponentName
 import android.content.Context
@@ -42,9 +41,13 @@ import android.content.ServiceConnection
 import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
+import android.os.ConditionVariable
 import android.os.IBinder
+import android.os.Process
+import android.support.annotation.NonNull
 import android.support.v7.app.AppCompatDelegate
 import android.support.v7.widget.Toolbar
+import android.util.Log
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -57,8 +60,8 @@ import butterknife.OnClick
 import butterknife.OnItemClick
 import butterknife.OnItemLongClick
 import com.daimajia.swipe.adapters.SimpleCursorSwipeAdapter
+import com.stanfy.enroscar.goro.Goro
 import com.stanfy.enroscar.goro.GoroListener
-import com.stanfy.enroscar.goro.GoroService
 import com.stanfy.enroscar.goro.IPCGoro
 import com.stanfy.enroscar.goro.ScriptBuilder
 import groovy.transform.CompileStatic
@@ -71,17 +74,29 @@ import net.sf.fakenames.dispatcher.Utils
 import org.codehaus.groovy.control.MultipleCompilationErrorsException
 
 import java.util.concurrent.Callable
+import java.util.concurrent.Semaphore
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.Condition
+import java.util.concurrent.locks.Lock
+import java.util.concurrent.locks.ReentrantLock
 
 @CompileStatic
 final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbacks, GoroListener, ServiceConnection {
+    private static final String TAG = 'ScriptMgrActivity'
+
     @Delegate
     private AppCompatDelegate delegate
 
     private ScriptAdapter adapter
 
-    private boolean resumed
+    private boolean readyToKill         // are we doing something, which will kill the service?
+    private boolean resumed             // was onResume already called?
+    private boolean cautious            // are we processing the script from untrusted source?
+    private boolean waitingForChanges   // is the FAB disabled in preparation to some changes?
 
-    private boolean cautious
+    private final Lock deathLock = new ReentrantLock()
+    private final Condition serviceStopped = deathLock.newCondition()
+
     private Uri scriptUri
     private String newScriptName
 
@@ -89,13 +104,16 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
 
     private IPCGoro service
 
-    private AsyncQueryHandler queryHandler
+    private SturdyQueryHandler queryHandler
 
     @Bind(R.id.list)
     protected ListView list
 
     @Bind(R.id.add_btn)
     protected ImageButton button
+
+    @Bind(R.id.stop_btn)
+    protected ImageButton stop
 
     @Bind(R.id.toolbar)
     protected Toolbar toolbar
@@ -165,14 +183,49 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         startActivityForResult(chooser, R.id.req_pick_script)
     }
 
+    @OnClick(R.id.stop_btn)
+    void cancelTasks() {
+        def serviceRef = service
+
+        def lockTaken = new ConditionVariable()
+
+        queryHandler.postOnBgThread {
+            deathLock.lock()
+            try {
+                lockTaken.open()
+
+                serviceRef.removeTasksInQueue(Goro.DEFAULT_QUEUE)
+
+                serviceStopped.await(4, TimeUnit.SECONDS) ?: serviceRef.killProcess(Process.SIGNAL_KILL)
+            } finally {
+                deathLock.unlock()
+            }
+        }
+
+        readyToKill = true
+        waitingForChanges = true
+
+        updateState()
+
+        lockTaken.block()
+    }
+
     @OnItemClick(R.id.list)
     protected void itemClicked(int position) {
         if (adapter.openItems && adapter.openItems[0] != -1) {
             adapter.closeAllItems()
         } else {
             def cursor = adapter.getItem(position) as Cursor
-            def script = cursor.getString(cursor.getColumnIndex(ScriptContract.Scripts.HUMAN_NAME))
-            startScript(null, script)
+
+            def script = cursor.getString(cursor.getColumnIndexOrThrow(ScriptContract.Scripts.HUMAN_NAME))
+
+            def originUriStr = cursor.getString(cursor.getColumnIndexOrThrow(ScriptContract.Scripts.SCRIPT_ORIGIN_URI))
+            def originUri = Uri.parse(originUriStr)
+
+            def uriStr = cursor.getString(cursor.getColumnIndexOrThrow(ScriptContract.Scripts.SCRIPT_ID))
+            def uri = ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME, uriStr)
+
+            startScript(script, originUri, uri, true)
         }
     }
 
@@ -267,7 +320,7 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         if (cautious) {
             // ok
         } else if (newScriptName) {
-            startScript(scriptUri, newScriptName)
+            startScript(newScriptName, scriptUri)
 
             newScriptName = null
             scriptUri = null
@@ -278,7 +331,7 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
                 def existingDir = DexGroovyClassloader.makeUnitFile(this, proposedName)
 
                 if (!existingDir.exists()) {
-                    startScript(scriptUri, proposedName)
+                    startScript(proposedName, scriptUri)
 
                     scriptUri = null
 
@@ -290,11 +343,15 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         }
     }
 
-    void startScript(Uri sourceUri, String targetScript) {
-        def intent = GoroService.taskIntent(this, new ParcelableTask(this, targetScript, sourceUri))
-                .putExtra(GoroService.EXTRA_IGNORE_ERROR, true)
+    void startScript(@NonNull String targetScript, @NonNull Uri sourceUri,
+                     Uri scriptUri = null, boolean runExisting = false)
+    {
+        readyToKill = true
+        waitingForChanges = true
 
-        startService(intent)
+        queryHandler.postOnBgThread {
+            service.schedule(new ParcelableTask(targetScript, sourceUri, scriptUri, runExisting))
+        }
 
         updateState()
     }
@@ -303,7 +360,7 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     protected void onStart() {
         super.onStart()
 
-        ScriptBuilder.bind(this, this)
+        assert ScriptBuilder.bindIt(this, this), 'Failed to initialize the service'
     }
 
     @Override
@@ -362,43 +419,32 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     }
 
     void updateState() {
-        if (!service) {
-            button.setEnabled(false)
-            button.setImageDrawable(null)
+        Log.i TAG, "Service: ${service as boolean}, tasks: $taskCount, waitingForChanges: $waitingForChanges"
 
-            if (adapter && adapter.enabled) {
-                adapter.enabled = false
-            }
-        } else if (taskCount) {
-            if (!button.getDrawable()) {
-                def newDrawable = new MaterialProgressDrawable(this, button)
-                newDrawable.backgroundColor = resources.getColor(android.R.color.transparent)
-                newDrawable.updateSizes(MaterialProgressDrawable.LARGE)
+        button.enabled = service && !taskCount && !waitingForChanges
+        adapter.enabled = button.enabled
+        stop.enabled = !button.enabled && !waitingForChanges
+        stop.visibility = taskCount ? View.VISIBLE : View.GONE
 
-                button.setImageDrawable(newDrawable)
+        if (button.enabled) {
+            button.imageDrawable = null
+        } else if (!button.drawable) {
+            def newDrawable = new MaterialProgressDrawable(this, button)
+            newDrawable.colorSchemeColors = R.color.primary_dark
+            newDrawable.backgroundColor = resources.getColor(android.R.color.transparent)
+            newDrawable.updateSizes(MaterialProgressDrawable.LARGE)
+            newDrawable.alpha = 255
 
-                newDrawable.setAlpha(255);
-                newDrawable.start()
+            button.imageDrawable = newDrawable
 
-                button.setEnabled(false)
-            }
-
-            if (adapter?.enabled) {
-                adapter.enabled = false
-            }
+            newDrawable.start()
         }
-        else {
-            button.setEnabled(true)
-            button.setImageDrawable(null)
-
-            if (adapter && !adapter.enabled) {
-                adapter.enabled = true
-            }
-        };
     }
 
     @Override
     void onTaskSchedule(Callable<?> task, String queue) {
+        waitingForChanges = false
+
         taskCount++
 
         updateState()
@@ -411,6 +457,15 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
     void onTaskFinish(Callable<?> task, Object result) {
         taskCount--
 
+        waitingForChanges = false
+
+        deathLock.lock()
+        try {
+            serviceStopped.signal()
+        } finally {
+            deathLock.unlock()
+        }
+
         updateState()
 
         Toast.makeText(this, "Teh success!", Toast.LENGTH_LONG).show()
@@ -418,14 +473,32 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
 
     @Override
     void onTaskCancel(Callable<?> task) {
+        waitingForChanges = false
+
         taskCount--
+
+        deathLock.lock()
+        try {
+            serviceStopped.signal()
+        } finally {
+            deathLock.unlock()
+        }
 
         updateState()
     }
 
     @Override
     void onTaskError(Callable<?> task, Throwable error) {
+        waitingForChanges = false
+
         taskCount--
+
+        deathLock.lock()
+        try {
+            serviceStopped.signal()
+        } finally {
+            deathLock.unlock()
+        }
 
         updateState()
 
@@ -447,7 +520,9 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
 
         alreadyDisconnected = false
 
-        taskCount = service.taskCount
+        waitingForChanges = false
+
+        taskCount = service.runningTasks.length
 
         service.addTaskListener(this)
 
@@ -462,12 +537,24 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         service = null
         taskCount = 0
 
-        Toast.makeText(this, "The script process has unexpectedly stopped", Toast.LENGTH_LONG).show()
+        deathLock.lock()
+        try {
+            serviceStopped.signal()
+        } finally {
+            deathLock.unlock()
+        }
 
-        if (alreadyDisconnected)
-            throw new IllegalStateException("Failed to reconnect to the service")
-        else
-            alreadyDisconnected = true
+        if (readyToKill) {
+            readyToKill = false
+            alreadyDisconnected = false
+        } else {
+            Toast.makeText(this, "The script process has unexpectedly stopped", Toast.LENGTH_LONG).show()
+
+            if (alreadyDisconnected)
+                throw new IllegalStateException("Failed to reconnect to the service")
+            else
+                alreadyDisconnected = true
+        }
 
         updateState()
     }
@@ -532,9 +619,11 @@ final class ScriptPicker extends Activity implements LoaderManager.LoaderCallbac
         }
 
         void setEnabled(boolean enabled) {
-            this.enabled = enabled
+            if (enabled != this.enabled) {
+                this.enabled = enabled
 
-            notifyDataSetChanged()
+                notifyDataSetChanged()
+            }
         }
 
         @Override

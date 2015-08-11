@@ -6,8 +6,10 @@ import android.os.IInterface
 import android.os.Looper
 import android.os.Parcelable
 import android.os.Process
+import android.os.RemoteException
 import groovy.transform.CompileStatic
 import net.sf.fakenames.app.IGoro
+import net.sf.fakenames.app.ParcelableTask
 
 import java.util.concurrent.Callable
 
@@ -49,10 +51,25 @@ final class IPCGoro implements IInterface {
             delegate.removeTaskListener(handler.messenger)
     }
 
-    int getTaskCount() {
+    int[] getRunningTasks() {
         assert Looper.myLooper() == Looper.mainLooper
 
-        return delegate.taskCount
+        return delegate.runningTasks
+    }
+
+    void removeTasksInQueue(String queueName) {
+        try {
+            delegate.removeTasksInQueue(queueName)
+        }
+        catch (RemoteException ignore) {}
+    }
+
+    void schedule(ParcelableTask task) {
+        def b = new Bundle()
+
+        b.putParcelable(ScriptBuilder.EXTRA_PARCELABLE_TASK, task)
+
+        delegate.schedule(b)
     }
 
     public static IPCGoro from(IBinder binder) {
@@ -62,5 +79,9 @@ final class IPCGoro implements IInterface {
     @Override
     IBinder asBinder() {
         return delegate.asBinder()
+    }
+
+    void killProcess(int signal) {
+        Process.sendSignal(pid, signal)
     }
 }

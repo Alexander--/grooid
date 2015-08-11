@@ -28,16 +28,34 @@
             tools:listitem="@layout/item_script"
             tools:footer="@layout/footer"/>
 
-    <ImageButton
-            android:id="@+id/add_btn"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
+    <LinearLayout
+            android:orientation="vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:layout_alignParentBottom="true"
             android:layout_alignParentRight="true"
             android:layout_marginRight="16dp"
-            android:layout_marginBottom="16dp"
-            android:background="@drawable/ic_fab"
-            android:contentDescription="@string/add_script"
-            android:tint="@color/primary_dark"
-            android:elevation="@dimen/ab_elevation" />
+            android:layout_marginBottom="16dp">
+        <ImageButton
+                android:id="@+id/stop_btn"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginBottom="16dp"
+                android:background="@drawable/mini_fab"
+                android:contentDescription="@string/stop_script"
+                android:elevation="@dimen/fab_elevation"
+                android:visibility="gone"
+                tools:visibility="visible"/>
+
+        <!-- extra width to account for bg inset -->
+        <ImageButton
+                android:id="@+id/add_btn"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_gravity="center_horizontal"
+                android:background="@drawable/ic_fab"
+                android:contentDescription="@string/add_script"
+                android:elevation="@dimen/fab_elevation"/>
+    </LinearLayout>
 </RelativeLayout>

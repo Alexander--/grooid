@@ -11,6 +11,7 @@ import android.support.annotation.NonNull
 import android.support.annotation.Nullable
 import com.stanfy.enroscar.goro.ServiceContextAware
 import groovy.transform.CompileStatic
+import groovy.transform.TupleConstructor
 import internal.DexGroovyClassloader
 import internal.GentleContextWrapper
 import net.sf.fakenames.api.ContextAwareScript
@@ -24,25 +25,15 @@ import java.nio.channels.Channels
 import java.util.concurrent.Callable
 import java.util.concurrent.Executor
 
-@CompileStatic
+@CompileStatic @TupleConstructor
 final class ParcelableTask implements Callable<Void>, Parcelable, ServiceContextAware {
-    private final Uri sourceUri
-    private final String targetScript
-
     private volatile Executor runner
     private volatile Context base
 
-    public ParcelableTask(@NonNull String targetScript, @Nullable Uri sourceUri) {
-        this.sourceUri = sourceUri
-        this.targetScript = targetScript
-    }
-
-    public ParcelableTask(@NonNull Context context, @NonNull String targetScript, @Nullable Uri sourceUri) {
-        this.base = context
-
-        this.sourceUri = sourceUri
-        this.targetScript = targetScript
-    }
+    @NonNull final String targetScript
+    @NonNull final Uri sourceUri
+    final Uri scriptUri
+    final boolean runExisting
 
     @Override
     void injectServiceContext(Context context) {
@@ -51,8 +42,6 @@ final class ParcelableTask implements Callable<Void>, Parcelable, ServiceContext
 
     @Override
     Void call() throws Exception {
-        Process.setThreadPriority(Process.THREAD_PRIORITY_FOREGROUND)
-
         def scriptSource = sourceUri
 
         def config = new CompilerConfiguration()
@@ -68,27 +57,20 @@ final class ParcelableTask implements Callable<Void>, Parcelable, ServiceContext
 
         def scriptCodeFile = DexGroovyClassloader.makeUnitFile(base.applicationContext, targetScript)
 
-        if (scriptSource) {
+        if (!runExisting) {
             def optimized = new File(DexGroovyClassloader.optimizedPathFor(scriptCodeFile, scriptCodeFile.parentFile))
 
-            optimized.delete()
-            scriptCodeFile.delete()
-            scriptCodeFile.parentFile.mkdirs()
-        } else if (!scriptCodeFile.exists()) {
-            def scriptSourceStr = base.contentResolver.query(
-                    ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME),
-                    [ScriptContract.Scripts.SCRIPT_ORIGIN_URI] as String[],
-                    "$ScriptContract.Scripts.HUMAN_NAME = ?", [targetScript] as String[],
-                    null).withCloseable {
-                it.moveToNext()
-                it.getString(0)
-            }
-            scriptSource = Uri.parse(scriptSourceStr)
+            assert optimized.delete() || !optimized.exists(),
+                    'Failed to remove optimized file'
+
+            assert scriptCodeFile.delete() || !scriptCodeFile.exists(),
+                    'Failed to remove compiled file'
+
+            assert scriptCodeFile.parentFile.mkdirs() || scriptCodeFile.parentFile.exists(),
+                    'Failed to create script code directory'
         }
 
         def groovyClassLoader = DexGroovyClassloader.getInstance(base.applicationContext, scriptCodeFile, config)
-        if (groovyClassLoader.closed)
-            throw new IllegalStateException("Restart the process to unload $targetScript!")
 
         def thread = Thread.currentThread()
         def oldContextCl = thread.contextClassLoader
@@ -103,63 +85,60 @@ final class ParcelableTask implements Callable<Void>, Parcelable, ServiceContext
 
             lock.acquire()
 
-            groovyClassLoader.withCloseable {
-                def scriptClass
+            Class<?> scriptClass = null
 
-                if (scriptSource) {
-                    try {
-                        def channel = Channels.newChannel(Utils.openStreamForUri(base, scriptSource))
+            if (runExisting) {
+                def className = base.contentResolver.query(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME),
+                        [ScriptContract.Scripts.CLASS_NAME] as String[],
+                        "$ScriptContract.Scripts.HUMAN_NAME = ?",
+                        [targetScript] as String[],
+                        null).withCloseable {
+                    it.moveToNext()
+                    it.getString(0)
+                }
 
-                        scriptClass = Channels.newReader(channel, 'UTF-8').withCloseable {
-                            groovyClassLoader.parseClass(new GroovyCodeSource(it, targetScript, 'whatever'))
-                        }
-
-                        def cv = new ContentValues(3)
-                        cv.put(ScriptContract.Scripts.HUMAN_NAME, targetScript)
-                        cv.put(ScriptContract.Scripts.CLASS_NAME, scriptClass.canonicalName)
-                        cv.put(ScriptContract.Scripts.SCRIPT_ORIGIN_URI, sourceUri as String)
-                        base.contentResolver.insert(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME), cv)
-                    } catch (Throwable t) {
-                        GentleContextWrapper.wipeCaches(base, targetScript)
-
-                        throw t
-                    }
-                } else {
-                    def className = base.contentResolver.query(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME),
-                            [ScriptContract.Scripts.CLASS_NAME] as String[],
-                            "$ScriptContract.Scripts.HUMAN_NAME = ?",
-                            [targetScript] as String[],
-                            null).withCloseable {
-                        it.moveToNext()
-                        it.getString(0)
-                    }
-
+                if (className)
                     scriptClass = groovyClassLoader.loadClass(className)
-                }
-
-                def groovyScript = scriptClass.newInstance() as Script
-
-                def appContext = new GentleContextWrapper(base.applicationContext, groovyClassLoader, targetScript)
-
-                groovyScript.binding = new Binding(context: appContext, executor: runner)
-
-                if (groovyScript instanceof ContextAwareScript) {
-                    def delegatingScript = groovyScript as ContextAwareScript
-
-                    if (!delegatingScript.delegate)
-                        delegatingScript.delegate = appContext
-
-                    delegatingScript.context = appContext
-                    delegatingScript.executor = runner
-                }
-
-                if (Thread.currentThread().interrupted)
-                    throw new InterruptedException()
-
-                groovyScript.run()
             }
+
+            if (!scriptClass) {
+                def channel = Channels.newChannel(Utils.openStreamForUri(base, scriptSource))
+
+                scriptClass = Channels.newReader(channel, 'UTF-8').withCloseable {
+                    groovyClassLoader.parseClass(new GroovyCodeSource(it, targetScript, 'whatever'))
+                }
+
+                def cv = new ContentValues(3)
+                cv.put(ScriptContract.Scripts.HUMAN_NAME, targetScript)
+                cv.put(ScriptContract.Scripts.CLASS_NAME, scriptClass.canonicalName)
+                cv.put(ScriptContract.Scripts.SCRIPT_ORIGIN_URI, sourceUri as String)
+                base.contentResolver.insert(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME), cv)
+            }
+
+            def groovyScript = scriptClass.newInstance() as Script
+
+            def appContext = new GentleContextWrapper(base.applicationContext, groovyClassLoader, targetScript)
+
+            groovyScript.binding = new Binding(context: appContext, executor: runner)
+
+            if (groovyScript instanceof ContextAwareScript) {
+                def delegatingScript = groovyScript as ContextAwareScript
+
+                if (!delegatingScript.delegate)
+                    delegatingScript.delegate = appContext
+
+                delegatingScript.context = appContext
+                delegatingScript.executor = runner
+            }
+
+            if (Thread.currentThread().interrupted)
+                throw new InterruptedException()
+
+            groovyScript.run()
         } finally {
             if (lock.held) lock.release()
+
+            Thread.interrupted()
 
             thread.contextClassLoader = oldContextCl
         }
@@ -176,12 +155,22 @@ final class ParcelableTask implements Callable<Void>, Parcelable, ServiceContext
     void writeToParcel(Parcel dest, int flags) {
         dest.writeString(targetScript)
         dest.writeParcelable(sourceUri, 0)
+        dest.writeParcelable(scriptUri, 0)
+        dest.writeValue(runExisting)
     }
 
     public static final Parcelable.Creator CREATOR = new Parcelable.Creator<ParcelableTask>() {
         @Override
         ParcelableTask createFromParcel(Parcel source) {
-            return new ParcelableTask(source.readString(), source.<Uri> readParcelable(ParcelableTask.classLoader))
+            def loader = ParcelableTask.classLoader
+
+            def task = new ParcelableTask(
+                    source.readString(),
+                    source.<Uri> readParcelable(loader),
+                    source.<Uri>readParcelable(loader),
+                    (boolean) source.readValue(loader))
+
+            return task
         }
 
         @Override

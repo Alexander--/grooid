@@ -61,8 +61,10 @@ import org.codehaus.groovy.control.CompilationUnit
 import org.codehaus.groovy.control.CompilationUnit.ClassgenCallback
 import org.codehaus.groovy.control.CompilerConfiguration
 import org.codehaus.groovy.control.SourceUnit
+import org.codehaus.groovy.runtime.metaclass.ConcurrentReaderHashMap
 
 import java.security.CodeSource
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.Lock
 import java.util.concurrent.locks.ReentrantLock;
@@ -127,7 +129,7 @@ final class DexGroovyClassloader extends GroovyClassLoader implements Closeable 
     private static final Attributes.Name CREATED_BY = new Attributes.Name('Created-By')
     private static final Attributes.Name MANIFEST_VERSION = new Attributes.Name('Manifest-Version')
 
-    private static final Map<File, DexGroovyClassloader> cache = new HashMap<>()
+    private static final Map<File, DexGroovyClassloader> cache = new ConcurrentReaderHashMap()
 
     private static volatile junk
 
@@ -154,24 +156,34 @@ final class DexGroovyClassloader extends GroovyClassLoader implements Closeable 
                                                    File unitFile,
                                                    CompilerConfiguration configuration = new CompilerConfiguration())
     {
+        DexGroovyClassloader classLoader
+
         synchronized (cache) {
-            def classLoader = cache.get(unitFile)
+            classLoader = cache.get(unitFile)
 
-            if (!classLoader) {
-                classLoader = new DexGroovyClassloader(context, unitFile, configuration)
+            if (classLoader) return classLoader
 
-                cache.put(unitFile, classLoader)
-            }
+            classLoader = new DexGroovyClassloader(context, unitFile, configuration)
 
-            if (unitFile.parentFile.exists()) {
-                unitFile.parentFile.listFiles().each { File it ->
-                    if (it.name.endsWith('.jar'))
-                        classLoader.dexClassPath.addLast(LoadedDex.loadDex(it.path, optimizedPathFor(it, unitFile.parentFile), 0))
-                }
-            }
-
-            return classLoader
+            cache.put(unitFile, classLoader)
         }
+
+        if (unitFile.parentFile.exists()) {
+            unitFile.parentFile.listFiles().each { File it ->
+                if (it.name.endsWith('.jar'))
+                    classLoader.dexClassPath.addLast(LoadedDex.loadDex(it.path, optimizedPathFor(it, unitFile.parentFile), 0))
+            }
+        }
+
+        return classLoader
+    }
+
+    public static boolean cachedClassLoader(File unitFile) {
+        return cache.containsKey(unitFile)
+    }
+
+    public static int getClassloadersCached() {
+        return cache.size()
     }
 
     private DexGroovyClassloader(Context context, File unitFile, CompilerConfiguration configuration) {

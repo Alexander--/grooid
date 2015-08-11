@@ -93,6 +93,16 @@ final class NastyGrapes implements GrapeEngine {
         }
     }
 
+    static boolean isInitialized() {
+        def grapes = Grape.@instance
+
+        return grapes && ((NastyGrapes) grapes).@initialized
+    }
+
+    static void interrupt() {
+        (Grape.@instance as NastyGrapes).ivyInstance.interrupt()
+    }
+
     private final Map<Object, Set> exclusiveGrabArgs = [
             ['group', 'groupId', 'organisation', 'organization', 'org'],
             ['module', 'artifactId', 'artifact'],
@@ -126,8 +136,12 @@ final class NastyGrapes implements GrapeEngine {
     private @Lazy Ivy ivyInstance = {
         System.setProperty('android.ivy.home', "$grapeCacheDir")
 
+        initialized = true
+
         Ivy.newInstance(settings)
     }()
+
+    private boolean initialized
 
     private final Context context
 

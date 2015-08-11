@@ -34,11 +34,35 @@ import android.content.ContentResolver;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.os.SystemClock;
 import android.support.annotation.NonNull;
 
 public class SturdyQueryHandler extends AsyncQueryHandler {
+    private static final Handler uiHandler = new Handler(Looper.getMainLooper());
+
+    private Handler bgHandler;
+
     public SturdyQueryHandler(ContentResolver cr) {
         super(cr);
+    }
+
+    public boolean postOnBgThread(Runnable runnable) {
+        return bgHandler.post(runnable);
+    }
+
+    public void dispatchMessage(@NonNull Message msg) {
+        if (msg.getCallback() != null) {
+            try {
+                msg.getCallback().run();
+            } catch (final RuntimeException e) {
+                uiHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        throw e;
+                    }
+                });
+            }
+        } else super.dispatchMessage(msg);
     }
 
     /**
@@ -69,7 +93,7 @@ public class SturdyQueryHandler extends AsyncQueryHandler {
 
     @Override
     protected Handler createHandler(@NonNull Looper looper) {
-        return new SturdyWorkerHandler(looper);
+        return bgHandler = new SturdyWorkerHandler(looper);
     }
 
     /**

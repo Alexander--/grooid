@@ -36,31 +36,24 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.net.Uri
-import android.os.Binder
 import android.os.Bundle
 import android.os.IBinder
 import android.os.IInterface
 import android.os.Looper
 import android.os.Messenger
-import android.os.Parcel
 import android.os.Parcelable
-import android.os.PowerManager
 import android.os.Process
 import android.os.RemoteCallbackList
 import android.os.RemoteException
-import android.os.ResultReceiver
-import android.support.annotation.NonNull
-import android.support.annotation.Nullable
 import android.support.v4.app.NotificationCompat
-import android.support.v4.provider.DocumentFile
 import android.util.Log
 import android.widget.Toast
+import com.android.dx.util.IntSet
+import com.android.dx.util.ListIntSet
 import com.stanfy.enroscar.goro.GoroService.GoroBinder
 import groovy.grape.NastyGrapes
 import groovy.transform.CompileStatic
 import groovy.transform.TupleConstructor
-import internal.GentleContextWrapper
-import net.sf.fakenames.api.ContextAwareScript
 import internal.DexGroovyClassloader
 import net.sf.fakenames.app.IGoro
 import net.sf.fakenames.app.PackageCustomizer
@@ -69,28 +62,34 @@ import net.sf.fakenames.app.R
 import net.sf.fakenames.app.ScriptPicker
 import net.sf.fakenames.db.ScriptContract
 import net.sf.fakenames.db.ScriptProvider
-import net.sf.fakenames.dispatcher.Utils
-import org.codehaus.groovy.control.CompilerConfiguration
-import org.codehaus.groovy.control.customizers.ImportCustomizer
+import org.codehaus.groovy.runtime.ArrayUtil
+import org.codehaus.groovy.runtime.metaclass.ConcurrentReaderHashMap
+import org.codehaus.groovy.util.ArrayIterator
 
 import java.lang.Thread.UncaughtExceptionHandler
 import java.lang.ref.WeakReference
-import java.nio.channels.Channels
+import java.text.DecimalFormat
 import java.util.concurrent.Callable
+import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionHandler
 import java.util.concurrent.ScheduledThreadPoolExecutor
 import java.util.concurrent.ThreadFactory
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 @CompileStatic
 final class ScriptBuilder extends GoroService {
+    public static final String EXTRA_PARCELABLE_TASK = 'net.sf.fakenames.app.TASK'
+
     static {
         System.setProperty('groovy.grape.report.downloads', 'true')
     }
 
     private static final String TAG = 'ScriptRunner'
+
+    private static final String EXTRA_KILL = 'net.sf.fakenames.app.KILL'
 
     private static final ScriptRunner runner = new ScriptRunner()
 
@@ -112,8 +111,11 @@ final class ScriptBuilder extends GoroService {
 
     @Override
     int onStartCommand(Intent intent, int flags, int startId) {
-        //if (flags & START_FLAG_RETRY)
-        //    return START_NOT_STICKY
+        if (flags ^ START_FLAG_RETRY && intent.hasExtra(EXTRA_KILL)) {
+            Log.i TAG, 'Requesting termination'
+
+            Process.killProcess(Process.myPid())
+        }
 
         super.onStartCommand(intent, flags, startId)
 
@@ -188,7 +190,7 @@ final class ScriptBuilder extends GoroService {
 
     @Override
     protected boolean isActive() {
-        binder.taskCount
+        binder.runningTasks.length
     }
 
     Notification createForegroundNf() {
@@ -197,13 +199,13 @@ final class ScriptBuilder extends GoroService {
         new NotificationCompat.Builder(this)
                 .setSmallIcon(R.drawable.ic_nf_foreground)
                 .setContentTitle('Groovy Shell is running')
-                .setContentText("Scripts in queue: $binder.taskCount...")
+                .setContentText("Scripts in queue: ${binder.tasks.size()}...")
                 .setContentIntent(intent)
                 .setProgress(100, 0, true)
                 .build()
     }
 
-    public static bind(Context context, ServiceConnection connection) {
+    public static bindIt(Context context, ServiceConnection connection) {
         context.bindService(getIntent(context), connection, BIND_AUTO_CREATE)
     }
 
@@ -243,7 +245,7 @@ final class ScriptBuilder extends GoroService {
     static class DelegateBinder extends IGoro.Stub implements GoroBinder, GoroListener {
         private final GoroBinder delegate
 
-        private final AtomicInteger taskCount = new AtomicInteger()
+        private final Set<Integer> tasks = Collections.newSetFromMap(new ConcurrentReaderHashMap<>())
 
         private final RemoteCallbackList<BogusIInterface> rcl = new RemoteCallbackList<>()
 
@@ -267,8 +269,64 @@ final class ScriptBuilder extends GoroService {
         }
 
         @Override
-        int getTaskCount() {
-            return taskCount.get()
+        int[] getRunningTasks() {
+            synchronized (tasks) {
+                return tasks as int[]
+            }
+        }
+
+        @Override
+        void schedule(Bundle taskBundle) {
+            taskBundle.classLoader = ParcelableTask.classLoader
+
+            def task = taskBundle.<ParcelableTask>getParcelable(EXTRA_PARCELABLE_TASK)
+
+            def extras = new Bundle()
+
+            def scriptCodeFile = DexGroovyClassloader.makeUnitFile(context, task.targetScript)
+
+            def usedMemory = getFreeMemory()
+            if (DexGroovyClassloader.classloadersCached && usedMemory < 0.5 && (usedMemory = getFreeMemory(true)) < 0.5) {
+                Log.i TAG, "Used up $usedMemory% of memory with ${Runtime.runtime.freeMemory()} remaining"
+
+                extras.putBoolean(EXTRA_KILL, true)
+            } else if (!task.runExisting && DexGroovyClassloader.cachedClassLoader(scriptCodeFile)) {
+                Log.i TAG, "Requested to recompile $scriptCodeFile, which is already loaded"
+
+                extras.putBoolean(EXTRA_KILL, true)
+            }
+
+            if (!task.scriptUri) {
+                def cv = new ContentValues(2)
+                cv.put(ScriptContract.Scripts.HUMAN_NAME, task.targetScript)
+                cv.put(ScriptContract.Scripts.SCRIPT_ORIGIN_URI, task.sourceUri as String)
+                def scriptUri = context.contentResolver.insert(ScriptProvider.contentUri(ScriptContract.Scripts.TABLE_NAME), cv)
+
+                task = new ParcelableTask(task.targetScript, task.sourceUri, scriptUri, task.runExisting)
+            }
+
+            extras.putBoolean(EXTRA_IGNORE_ERROR, true)
+
+            def intent = taskIntent(context, task).putExtras(extras)
+
+            context.startService(intent)
+        }
+
+        private static double getFreeMemory(boolean recheck = false) {
+            def vm = Runtime.runtime
+
+            if (recheck) {
+                vm.gc()
+                Thread.sleep(100)
+                vm.runFinalization()
+                Thread.sleep(50)
+                vm.gc()
+            }
+
+            def used = vm.totalMemory()
+            def max = vm.maxMemory()
+
+            (max - used) / max
         }
 
         @Override
@@ -282,9 +340,22 @@ final class ScriptBuilder extends GoroService {
         }
 
         @Override
+        void removeTasksInQueue(String queueName) {
+            goro().removeTasksInQueue(queueName)
+
+            if (NastyGrapes.initialized) {
+                NastyGrapes.interrupt()
+            }
+
+            runner.reset()
+        }
+
+        @Override
         void onTaskSchedule(Callable<?> task, String queue) {
             if (task instanceof Parcelable) {
-                taskCount.incrementAndGet()
+                synchronized (tasks) {
+                    tasks.add(Integer.parseInt(((ParcelableTask) task).scriptUri.lastPathSegment))
+                }
 
                 rcl.beginBroadcast()
 
@@ -314,7 +385,9 @@ final class ScriptBuilder extends GoroService {
         @Override
         void onTaskFinish(Callable<?> task, Object result) {
             if (task instanceof Parcelable) {
-                taskCount.decrementAndGet()
+                synchronized (tasks) {
+                    tasks.remove(Integer.parseInt(((ParcelableTask) task).scriptUri.lastPathSegment))
+                }
 
                 rcl.beginBroadcast()
 
@@ -330,7 +403,9 @@ final class ScriptBuilder extends GoroService {
         @Override
         void onTaskCancel(Callable<?> task) {
             if (task instanceof Parcelable) {
-                taskCount.decrementAndGet()
+                synchronized (tasks) {
+                    tasks.remove(Integer.parseInt(((ParcelableTask) task).scriptUri.lastPathSegment))
+                }
 
                 rcl.beginBroadcast()
 
@@ -346,7 +421,9 @@ final class ScriptBuilder extends GoroService {
         @Override
         void onTaskError(Callable<?> task, Throwable error) {
             if (task instanceof Parcelable) {
-                taskCount.decrementAndGet()
+                synchronized (tasks) {
+                    tasks.remove(Integer.parseInt(((ParcelableTask) task).scriptUri.lastPathSegment))
+                }
 
                 rcl.beginBroadcast()
 
@@ -405,17 +482,12 @@ final class ScriptBuilder extends GoroService {
         }
     }
 
-    private static class ScriptRunner extends ScheduledThreadPoolExecutor implements RejectedExecutionHandler, ThreadFactory {
+    private static class ScriptRunner implements Executor, RejectedExecutionHandler, ThreadFactory {
         private final AtomicInteger threadCount = new AtomicInteger(1)
 
         final DelegatingThreadGroup parentGroup = new DelegatingThreadGroup(Looper.mainLooper.thread.threadGroup)
 
-        ScriptRunner() {
-            super(Runtime.runtime.availableProcessors())
-
-            threadFactory = this
-            rejectedExecutionHandler = this
-        }
+        private volatile ScheduledThreadPoolExecutor delegate
 
         @Override
         Thread newThread(Runnable r) {
@@ -431,9 +503,32 @@ final class ScriptBuilder extends GoroService {
             if (!executor.shutdown && !executor.terminating) {
                 executor.shutdownNow()
             }
-            executor.awaitTermination(1, TimeUnit.SECONDS)
 
-            System.exit(-99)
+            throw new ThreadDeath()
+        }
+
+        synchronized void reset() {
+            // TODO: better sync here?
+            def delegateRef = delegate
+
+            delegate = null
+
+            delegateRef.shutdownNow()
+
+            while (!delegateRef.awaitTermination(10, TimeUnit.SECONDS));
+        }
+
+        @Override
+        void execute(Runnable command) {
+            if (delegate == null) {
+                synchronized (this) {
+                    if (delegate == null) {
+                        delegate = new ScheduledThreadPoolExecutor(Runtime.runtime.availableProcessors(), this, this)
+                    }
+                }
+            }
+
+            delegate.execute(command)
         }
     }
 }
